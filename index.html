@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="assets/Css/login.css">
+    
+
+    <title>Page Title</title>
+</head>
+<body>
+
+<div class="login-container">
+
+<h2> Welcome back </h2>
+
+<form id="loginForm" action="#" method="POST">
+
+    <div class="input-group">
+        <label for="email">Enter email address</label><br>
+        <input type="email" id="email" name="email" required >
+    </div>
+
+    <br>
+
+     <div class="input-group">
+        <label for="password">Enter password</label><br>
+        <input type="password" id="password" name="password" required >
+    </div>
+
+    <br>
+
+    <div class="options">
+        <label>
+          <input type="checkbox" name="remember">Remeber me
+        </label>
+        <a href="#">Forgot password?</a>
+    </div>
+
+    <br>
+     
+    <div>
+        <button type="submit" class="btn-submit" >Sign In</button>
+    </div>
+    
+
+</form>
+
+
+<div id="thankYouMessage" style="display: none; text-align: center; margin-top: 20px;">
+    <h2>Thank you for logging in!</h2>
+</div>
+
+
+<p class="signup-text">
+ Don't have an account?<a href="#">Sign up</a>
+</p>
+
+
+</div>
+<script src="assets/js/script.js"></script>
+</body>
+</html>
