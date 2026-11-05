@@ -1,19 +1,47 @@
+/* Light mode default colors */
+:root {
+  --bg-body: whitesmoke;
+  --bg-card: #ffffff;
+  --text-h2: #000000;
+  --text-label: #06989a;
+  --input-bg: #ffffff;
+  --input-border: #d1d5db;
+  --input-text: #000000;
+}
+
+/* Dark mode colors */
+[data-theme="dark"] {
+  --bg-body: #0f172a;
+  --bg-card: #1e293b;
+  --text-h2: #ffffff;
+  --text-label: #38bdf8;
+  --input-bg: #334155;
+  --input-border: #475569;
+  --input-text: #ffffff;
+}
+
+
 body {
     display: flex;
     justify-content: center;
     align-items: center;
     min-height: 100vh;
-    background: whitesmoke;
+    background: var(--bg-body);
+    color: var(--text-h2);
     font-family: Arial, Helvetica, sans-serif;
-}
+    transition: background-color 0.03s ease, color 0.3s ease;
+}  
 
 .login-container {
+    position: relative;
+    background-color: var(--bg-card);
     background-color: #ffffff;
     padding: 40px 30px;
     border-radius: 12px;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
     width: 100%;
     max-width: 380px;
+    transition: background-color 0.3s ease;
 }
 
 .login-container h2 {
@@ -39,11 +67,13 @@ body {
 .input-group input {
     width: 90%;
     padding: 12px 14px;
+    background-color: var(--input-bg); 
+    color: var(--input-text);
     border: 2px solid #d1d5db;
     border-radius: 6px;
     font-size: 14px;
     outline: none;
-    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
 }
 
 .input-group input:focus {
@@ -108,4 +138,29 @@ body {
 
 .signup-text a:hover {
     text-decoration: underline;
+}
+
+
+/*toggle*/
+
+
+.theme-toggle-container {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+}
+
+#theme-toggle {
+    background: var(--bg-card);
+    border: 1px solid var(--input-border);
+    font-size: 1.1rem;
+    padding: 6px 10px;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease, background-color 0.3s ease;
+}
+
+#theme-toggle:hover {
+    transform: scale(1.1);
 }

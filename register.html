@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Talkfav</title>
+    <link rel="stylesheet" href="assets/Css/login.css">
+    <link rel="stylesheet" href="assets/Css/register.css">
+</head>
+<body>
+
+ <button id="theme-toggle" class="theme-toggle-btn" aria-level="toggle theme">
+        <span id="theme-icon">🌙</span>
+ </button>
+
+ <div class="register-container">
+
+  <form id="registerForm" class="register-card">
+
+    <div class="card-header">
+
+       <h2>Registration Form</h2>
+       <a href="index.html" class="close-btn">&times;</a>
+
+    </div>
+
+    <div class="input-group">
+        <label for="name">*name</label>
+        <input type="text" id="name" required >
+    </div>
+
+    <div class="input-group">
+        <label for="email">*email address</label>
+        <input type="text" id="email" required >
+    </div>
+
+    <div class="input-group">
+        <label for="country">*country</label>
+        <input type="text" id="country" required>
+    </div>
+
+    <div class="input-group">
+        <label for="phone">*phone</label>
+        <input type="tel" id="phone" required>
+    </div>
+
+    <div class="input-group password-group">
+
+         <label for="password">*password</label>
+
+         <div class="password-wrapper">
+            <input type="password" id="password" required>
+            <span id="toggle-password" class="eye-icon">👁️</span>
+            </div>
+
+    </div>
+ 
+    <div class="terms-group">
+        <input type="checkbox" id="terms" required>
+
+        <label for="terms">
+              Lorem ipsum dolor sit amet...
+        </label>
+    </div>
+
+    <button type="submit" class="submit-btn">
+    CREATE ACCOUNT
+    </button>
+
+    <p class="login-redirect">
+
+       Already have an account?
+       <a href="index.html">sign in</a>
+
+    </p>
+
+
+
+  </form>
+
+  <div id="registerThankYou" class="register-card" style="display: none; text-align: center;">
+    <h2>Registration Successful!</h2>
+    <p style="margin: 15px 0; color: var(--text-color);">Dhonnobad! Apnar account shofolvabe create hoyeche.</p>
+    <a href="index.html" class="submit-btn" style="display: inline-block; text-decoration: none; line-height: normal;">Login Now</a>
+    
+</div>
+ </div>
+ <script src="assets/js/script.js"></script>
+ </body>
+</html>
