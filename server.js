@@ -11,19 +11,80 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database Connection
-const db = mysql.createConnection({
+// Database Connection Pool (Aiven Cloud MySQL SSL Supported)
+const db = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
-    password: process.env.DB_PASS,
-    database: process.env.DB_NAME
+    password: process.env.DB_PASSWORD || process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    port: process.env.DB_PORT || 3306,
+    ssl: {
+        rejectUnauthorized: false
+    },
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
 });
 
-db.connect((err) => {
+// Test Connection & Auto Create Tables
+db.getConnection((err, connection) => {
     if (err) {
         console.error('Database connection failed:', err);
     } else {
-        console.log(`Connected to MySQL Database: ${process.env.DB_NAME}`);
+        console.log(`Connected to Aiven MySQL Database: ${process.env.DB_NAME}`);
+
+        // 1. Users Table
+        const createUsersTable = `
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                country VARCHAR(100),
+                phone VARCHAR(50) NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+
+        // 2. Friend Requests Table
+        const createFriendRequestsTable = `
+            CREATE TABLE IF NOT EXISTS friend_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                sender_id INT NOT NULL,
+                receiver_id INT NOT NULL,
+                status VARCHAR(50) DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+
+        // 3. Messages Table
+        const createMessagesTable = `
+            CREATE TABLE IF NOT EXISTS messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                sender_id INT NOT NULL,
+                receiver_id INT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+
+        // Run Table Queries
+        connection.query(createUsersTable, (err) => {
+            if (err) console.error('Users table creation failed:', err);
+            else console.log('Users table ready!');
+        });
+
+        connection.query(createFriendRequestsTable, (err) => {
+            if (err) console.error('Friend requests table creation failed:', err);
+            else console.log('Friend requests table ready!');
+        });
+
+        connection.query(createMessagesTable, (err) => {
+            if (err) console.error('Messages table creation failed:', err);
+            else console.log('Messages table ready!');
+        });
+
+        connection.release();
     }
 });
 
