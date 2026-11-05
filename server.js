@@ -2,6 +2,7 @@ const express = require('express');
 const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const path = require('path'); // <--- Eta add kora hoyeche
 require('dotenv').config();
 
 const app = express();
@@ -107,11 +108,6 @@ db.getConnection((err, connection) => {
 
         connection.release();
     }
-});
-
-// Root Route Test
-app.get('/', (req, res) => {
-    res.send('Talkfav Backend Server is running successfully!');
 });
 
 // ==========================================
