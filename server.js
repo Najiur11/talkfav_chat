@@ -11,6 +11,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Serve Static Frontend Files
+app.use(express.static(__dirname));
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
 // Database Connection Pool (Aiven Cloud MySQL SSL Supported)
 const db = mysql.createPool({
     host: process.env.DB_HOST,
