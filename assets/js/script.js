@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================
-    // ২. পাসওয়ার্ড Show/Hide Toggle Logic (রেজিস্টার ও লগইন পেজের জন্য)
+    // ২. পাসওয়ার্ড Show/Hide Toggle Logic (রেজিস্টার ও লগইন পেজের জন্য)
     // ==========================================
     const togglePassword = document.getElementById('toggle-password') || document.getElementById('togglePassword');
     const passwordInput = document.getElementById('password') || document.getElementById('loginPassword');
@@ -66,7 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const userData = { name, email, country, phone, password };
 
             try {
-                const response = await fetch('http://localhost:3000/api/register', {
+                // Fixed: Using relative path for cross-device compatibility
+                const response = await fetch('/api/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(userData)
@@ -77,12 +78,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     alert(result.message || 'Registration Successful!');
                     
-                    // রেজিস্ট্রেশন সফল হলে লগইন পেজে রিডাইরেক্ট অথবা থ্যাংক ইউ মেসেজ
                     if (registerThankYou) {
                         registerForm.style.display = 'none';
                         registerThankYou.style.display = 'block';
                     } else {
-                        window.location.href = 'login.html'; // সরাসরি লগইন পেজে পাঠাবে
+                        window.location.href = 'login.html';
                     }
                 } else {
                     alert(result.message || 'Registration failed!');
@@ -112,7 +112,8 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             try {
-                const response = await fetch('http://localhost:3000/api/login', {
+                // Fixed: Using relative path for cross-device compatibility
+                const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(loginData)
@@ -123,10 +124,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (response.ok) {
                     alert(result.message || 'Login Successful!');
 
-                    // ব্রাউজারের Local Storage-এ ইউজার ডাটা সেভ রাখা
+                    // Save user data in Local Storage
                     localStorage.setItem('user', JSON.stringify(result.user));
 
-                    // রিডাইরেক্ট করে Dashboard/Home পেজে নিয়ে যাওয়া
+                    // Redirect to dashboard
                     window.location.href = 'dashboard.html';
                 } else {
                     alert(result.message || 'Login failed!');
