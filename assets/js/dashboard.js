@@ -29,8 +29,8 @@ async function loadFriends() {
 
         data.friends.forEach(friend => {
             const div = document.createElement('div');
-            div.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee;';
-            div.innerHTML = `<span>${friend.name}</span><button onclick="openChat(${friend.id}, '${friend.name}')" style="padding: 4px 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Chat</button>`;
+            div.className = 'row-item';
+            div.innerHTML = `<span>${friend.name}</span><button class="btn btn-chat" onclick="openChat(${friend.id}, '${friend.name}')">Chat</button>`;
             container.appendChild(div);
         });
     } catch (err) { console.error(err); }
@@ -54,8 +54,8 @@ document.getElementById('searchBtn').addEventListener('click', async () => {
 
         data.users.forEach(user => {
             const div = document.createElement('div');
-            div.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 0;';
-            div.innerHTML = `<span>${user.name} (${user.email})</span><button onclick="sendRequest(${user.id})" style="padding: 4px 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Add Friend</button>`;
+            div.className = 'row-item';
+            div.innerHTML = `<span>${user.name} (${user.email})</span><button class="btn btn-add" onclick="sendRequest(${user.id})">Add Friend</button>`;
             resultsDiv.appendChild(div);
         });
     } catch (err) { console.error(err); }
@@ -88,8 +88,8 @@ async function loadPendingRequests() {
 
         data.requests.forEach(req => {
             const div = document.createElement('div');
-            div.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 6px 0;';
-            div.innerHTML = `<span>${req.name}</span><button onclick="acceptRequest(${req.request_id})" style="padding: 4px 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Accept</button>`;
+            div.className = 'row-item';
+            div.innerHTML = `<span>${req.name}</span><button class="btn btn-accept" onclick="acceptRequest(${req.request_id})">Accept</button>`;
             container.appendChild(div);
         });
     } catch (err) { console.error(err); }
@@ -126,14 +126,12 @@ async function loadMessages() {
         const container = document.getElementById('messageContainer');
         container.innerHTML = '';
 
-        container.style.cssText = 'height: 250px; overflow-y: scroll; border: 1px solid #ddd; padding: 10px; background: #fafafa; border-radius: 5px; display: flex; flex-direction: column; gap: 8px;';
-
         data.messages.forEach(msg => {
             const isMe = msg.sender_id === currentUser.id;
-            const p = document.createElement('p');
-            p.style.textAlign = isMe ? 'right' : 'left';
-            p.innerHTML = `<span style="background: ${isMe ? '#d1e7dd' : '#f8d7da'}; padding: 6px 10px; border-radius: 6px; display: inline-block; max-width: 70%; word-break: break-word;">${msg.message}</span>`;
-            container.appendChild(p);
+            const bubble = document.createElement('div');
+            bubble.className = 'msg ' + (isMe ? 'me' : 'them');
+            bubble.textContent = msg.message;
+            container.appendChild(bubble);
         });
         container.scrollTop = container.scrollHeight;
     } catch (err) { console.error(err); }

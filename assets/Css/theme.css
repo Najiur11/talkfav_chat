@@ -1,0 +1,125 @@
+/* =====================================================
+   Talkfav shared theme (light + glass dark mode)
+   ===================================================== */
+:root {
+  --bg: #f1f5f9;
+  --bg-image: radial-gradient(900px 500px at 50% -10%, rgba(6,152,154,.12), transparent 70%);
+  --card: #ffffff;
+  --card-border: rgba(15, 23, 42, .06);
+  --card-blur: none;
+  --shadow: 0 10px 30px rgba(15, 23, 42, .12);
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --label: #6d3df5;
+  --heading: #0f172a;
+  --input-bg: #ffffff;
+  --input-border: #d1d5db;
+  --input-text: #0f172a;
+  --accent: #6d3df5;
+  --accent-2: #ec1fc8;
+  --accent-ring: rgba(109, 61, 245, .25);
+  --link: #6d3df5;
+  --soft: #f1f5f9;
+  --divider: #e2e8f0;
+  --bubble-me: #d1fae5;
+  --bubble-them: #e2e8f0;
+  --danger: #ef4444;
+  --success: #16a34a;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --bg: #060b17;
+  --bg-image:
+    radial-gradient(700px 380px at 50% -5%, rgba(56, 189, 248, .22), transparent 70%),
+    radial-gradient(600px 400px at 90% 110%, rgba(99, 102, 241, .14), transparent 70%),
+    linear-gradient(180deg, #0a1426 0%, #060b17 100%);
+  --card: rgba(22, 33, 56, .55);
+  --card-border: rgba(148, 197, 255, .14);
+  --card-blur: blur(18px) saturate(140%);
+  --shadow: 0 20px 50px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .06);
+  --text: #e6edf7;
+  --text-muted: #8ea0bd;
+  --label: #8ea0bd;
+  --heading: #f1f5f9;
+  --input-bg: rgba(8, 14, 28, .55);
+  --input-border: rgba(148, 197, 255, .16);
+  --input-text: #e6edf7;
+  --accent: #38bdf8;
+  --accent-2: #22d3ee;
+  --accent-ring: rgba(56, 189, 248, .28);
+  --link: #38bdf8;
+  --soft: rgba(255, 255, 255, .04);
+  --divider: rgba(148, 197, 255, .12);
+  --bubble-me: rgba(56, 189, 248, .22);
+  --bubble-them: rgba(255, 255, 255, .07);
+  --danger: #f87171;
+  --success: #34d399;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-image), var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, Arial, sans-serif;
+  transition: background-color .3s ease, color .3s ease;
+}
+
+input[type="text"], input[type="email"], input[type="password"], input[type="tel"] {
+  background: var(--input-bg);
+  color: var(--input-text);
+  border: 1.5px solid var(--input-border);
+  border-radius: 10px;
+  outline: none;
+  font-size: 14px;
+  transition: border-color .2s, box-shadow .2s, background-color .3s;
+}
+input::placeholder { color: var(--text-muted); opacity: .8; }
+input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+
+input:-webkit-autofill {
+  -webkit-text-fill-color: var(--input-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--input-bg) inset;
+  transition: background-color 9999s ease 0s;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #04202b;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .2s ease;
+}
+[data-theme="light"] .btn-primary { color: #fff; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px var(--accent-ring); }
+
+#theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 50;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 1.1rem;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: var(--card-blur);
+  backdrop-filter: var(--card-blur);
+  transition: transform .2s ease;
+}
+#theme-toggle:hover { transform: scale(1.1) rotate(15deg); }
