@@ -3,61 +3,139 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Talkfav - Social Dashboard</title>
+    <title>Talkfav - Dashboard</title>
     <script>try{document.documentElement.setAttribute('data-theme',localStorage.getItem('theme')||'light')}catch(e){}</script>
     <link rel="stylesheet" href="assets/Css/theme.css">
     <link rel="stylesheet" href="assets/Css/dashboard.css">
 </head>
-<body>
-    <button id="theme-toggle" type="button" aria-label="Toggle dark mode">
-        <span id="theme-icon">🌙</span>
-    </button>
+<body class="dash">
 
-    <div class="dashboard-container">
-        <header class="dashboard-header glass">
-            <h1 id="welcomeUser">Welcome, User</h1>
-            <button id="logoutBtn" class="btn logout-btn">Log Out</button>
-        </header>
+<div class="app" id="app">
 
-        <div class="dashboard-grid">
-            <div class="sidebar-section">
-                <div class="card glass">
-                    <h3>My Profile</h3>
-                    <p><strong>Email:</strong> <span id="userEmail"></span></p>
-                    <p><strong>Country:</strong> <span id="userCountry"></span></p>
-                </div>
-                <div class="card glass">
-                    <h3>My Friends</h3>
-                    <div id="friendsList">Loading friends...</div>
-                </div>
-                <div class="card glass">
-                    <h3>Friend Requests</h3>
-                    <div id="pendingRequests">No pending requests</div>
-                </div>
+    <!-- ========== 1) Left sidebar ========== -->
+    <aside class="sidebar">
+        <div class="brand">
+            <img src="assets/images/logo-light.png" alt="TalkFav" class="brand-logo logo-light">
+            <img src="assets/images/logo-dark.png"  alt="TalkFav" class="brand-logo logo-dark">
+            
+            <button id="theme-toggle" type="button" aria-label="Toggle dark mode"><span id="theme-icon">🌙</span></button>
+        </div>
+
+        <nav class="nav">
+            <button class="nav-item active" data-tab="chats" type="button">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><circle cx="9" cy="9.5" r=".6" fill="currentColor"/><circle cx="12" cy="9.5" r=".6" fill="currentColor"/><circle cx="15" cy="9.5" r=".6" fill="currentColor"/></svg>
+                <span>Chats</span>
+                <b class="badge" id="chatBadge" hidden>0</b>
+            </button>
+            <button class="nav-item" data-tab="friends" type="button">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M17.5 14.2c2.4.2 4 2 4 4.8"/></svg>
+                <span>My Friends</span>
+            </button>
+            <button class="nav-item" data-tab="find" type="button">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.9-4.9"/></svg>
+                <span>Find People</span>
+            </button>
+            <button class="nav-item" data-tab="requests" type="button">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3.2-6.5 7-6.5"/><path d="M18 8v6M15 11h6"/></svg>
+                <span>Friend Requests</span>
+                <b class="badge" id="reqBadge" hidden>0</b>
+            </button>
+            <button class="nav-item" data-tab="profile" type="button">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+                <span>My Profile</span>
+            </button>
+        </nav>
+
+        <div class="me-card">
+            <div class="avatar" id="meAvatar">U</div>
+            <div class="me-info">
+                <strong id="meName">User</strong>
+                <span><i class="dot"></i>Online</span>
             </div>
+            <button id="logoutBtn" class="icon-btn" type="button" title="Log Out" aria-label="Log Out">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4"/><path d="M16 8l4 4-4 4"/><path d="M20 12H9"/></svg>
+            </button>
+        </div>
+    </aside>
 
-            <div class="content-section">
-                <div class="card glass">
-                    <h3>Find People</h3>
-                    <div class="search-box-wrapper">
-                        <input type="text" id="searchQuery" placeholder="Search by name or email...">
-                        <button id="searchBtn" class="btn btn-search">Search</button>
-                    </div>
-                    <div id="searchResults"></div>
-                </div>
+    <!-- ========== 2) Middle list pane (changes with the sidebar tab) ========== -->
+    <section class="list-pane">
+        <header class="pane-head"><h2 id="paneTitle">Chats</h2></header>
+        <div class="pane-body" id="paneBody"></div>
+    </section>
 
-                <div id="chatSection" class="card glass" style="display: none;">
-                    <h3 id="chatTitle">Chat</h3>
-                    <div id="messageContainer"></div>
-                    <div class="message-box">
-                        <input type="text" id="messageInput" placeholder="Type a message...">
-                        <button id="sendMsgBtn" class="btn btn-send">Send</button>
-                    </div>
+    <!-- ========== 3) Right chat pane ========== -->
+    <main class="chat-pane">
+        <div class="chat-empty" id="chatEmpty">
+            <div class="empty-mark">💬</div>
+            <h3>Welcome to TalkFav</h3>
+            <p>Select a friend from the list to start chatting.</p>
+        </div>
+
+        <div class="chat-box" id="chatSection" hidden>
+            <header class="chat-head">
+                <button id="backBtn" class="icon-btn back" type="button" aria-label="Back">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+                </button>
+                <div class="av-wrap">
+                    <div class="avatar" id="chatAvatar">U</div>
+                    <i class="status-dot" id="chatDot" hidden></i>
                 </div>
+                <div class="chat-head-info">
+                    <strong id="chatTitle">Chat</strong>
+                    <span id="chatSub"></span>
+                </div>
+                <div class="chat-actions">
+                    <button id="audioCallBtn" class="icon-btn" type="button" title="Audio call" aria-label="Audio call">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>
+                    </button>
+                    <button id="videoCallBtn" class="icon-btn" type="button" title="Video call" aria-label="Video call">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/></svg>
+                    </button>
+                </div>
+            </header>
+
+            <div id="messageContainer"></div>
+
+            <div class="composer">
+                <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off">
+                <button id="sendMsgBtn" class="send-btn" type="button" aria-label="Send">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6l-.1 6.5L15 12 3.3 13.9z"/></svg>
+                </button>
             </div>
         </div>
+    </main>
+
+</div>
+
+<!-- ========== Audio / Video call screen ========== -->
+<div id="callOverlay" class="call-overlay" hidden>
+    <video id="remoteVideo" class="remote-video" autoplay playsinline></video>
+    <div class="call-info">
+        <div class="avatar xl" id="callAvatar">U</div>
+        <h3 id="callName">Name</h3>
+        <p id="callStatus">Calling...</p>
     </div>
-    <script src="assets/js/script.js"></script>
-    <script src="assets/js/dashboard.js"></script>
+    <video id="localVideo" class="local-video" autoplay playsinline muted hidden></video>
+    <div class="call-controls">
+        <button id="callMuteBtn" class="call-btn" type="button" aria-label="Mute microphone" hidden>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/><path class="slash" d="M3 3l18 18"/></svg>
+        </button>
+        <button id="callCamBtn" class="call-btn" type="button" aria-label="Turn camera off" hidden>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/><path class="slash" d="M3 3l18 18"/></svg>
+        </button>
+        <button id="callAcceptBtn" class="call-btn accept" type="button" aria-label="Accept call" hidden>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.3.2 2.5.57 3.6a1 1 0 0 1-.25 1z"/></svg>
+        </button>
+        <button id="callEndBtn" class="call-btn end" type="button" aria-label="End call">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="transform:rotate(135deg)"><path d="M6.6 10.8a15 15 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25c1.1.37 2.3.57 3.6.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.3.2 2.5.57 3.6a1 1 0 0 1-.25 1z"/></svg>
+        </button>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="assets/js/script.js"></script>
+<script src="assets/js/call.js"></script>
+<script src="assets/js/dashboard.js"></script>
 </body>
 </html>
