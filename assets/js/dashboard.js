@@ -613,6 +613,7 @@ function openChat(friend) {
     pollTimer = setInterval(() => { if (!socketUp) loadMessages(false); }, 3000);   // socket na thakle auto-refresh
     if (composeMode) cancelCompose();               // onno chat e reply/edit cholbe na
     closeSearch();
+    stopRecording(true);                            // onno chat e gele recording batil
     pinIndex = 0;
     currentMsgs = [];
     $('messageInput').focus();
@@ -640,11 +641,11 @@ function openMsgMenu(msg, anchor) {
         items = [
             { label: '↩️ Reply',   action: () => startReply(msg) },
             { label: '➡️ Forward', action: () => openForward(msg) },
-            { label: '📋 Copy',    action: () => navigator.clipboard && navigator.clipboard.writeText(msg.message) },
+            { label: '📋 Copy',    action: () => navigator.clipboard && navigator.clipboard.writeText(msg.message || msg.attachment_url || '') },
             { label: msg.pinned_at ? '📍 Unpin' : '📌 Pin', action: () => togglePin(msg) }
         ];
         if (isMe) {
-            items.push({ label: '✏️ Edit',   action: () => startEdit(msg) });
+            if (msg.message) items.push({ label: '✏️ Edit',   action: () => startEdit(msg) });   // shudhu lekha edit hoy
             items.push({ label: '🚫 Unsend', action: () => unsendMessage(msg), danger: true });
         }
         items.push({ label: '🗑️ Delete for me', action: () => deleteForMe(msg), danger: true });
@@ -693,6 +694,8 @@ document.addEventListener('keydown', (e) => {
     closeMsgMenu();
     closeForward();
     closeEmojiPanel();
+    if ($('lightbox')) { closeLightbox(); return; }
+    if (recorder && recorder.state === 'recording') { stopRecording(true); return; }
     if (composeMode) cancelCompose();
     else if (searchOpen) closeSearch();
 });
@@ -762,7 +765,7 @@ function showComposeBar() {
     const { type, msg } = composeMode;
     const info = el('div', 'compose-info');
     info.appendChild(el('strong', '', type === 'edit' ? '✏️ Editing message' : '↩️ Replying to ' + senderName(msg.sender_id)));
-    info.appendChild(el('span', '', shortText(msg.message, 80)));
+    info.appendChild(el('span', '', shortText(previewText(msg), 80)));
     bar.appendChild(info);
 
     const x = el('button', 'compose-close', '✕');
@@ -801,6 +804,7 @@ function replyQuote(msg) {
     let text;
     if (msg.reply_message === null || msg.reply_message === undefined) text = 'Message not available';
     else if (msg.reply_deleted_at) text = '🚫 Message unsent';
+    else if (!msg.reply_message && msg.reply_attachment_type) text = attachLabel(msg.reply_attachment_type, msg.reply_attachment_name);
     else text = shortText(msg.reply_message, 90);
     const qs = el('span');
     appendRich(qs, text);
@@ -832,7 +836,7 @@ function openForward(msg) {
     overlay.id = 'fwdOverlay';
     const box = el('div', 'fwd-box');
     box.appendChild(el('h3', '', 'Forward message'));
-    box.appendChild(el('p', 'fwd-preview', shortText(msg.message, 120)));
+    box.appendChild(el('p', 'fwd-preview', shortText(previewText(msg), 120)));
 
     const send = el('button', 'btn-sm', 'Send');
     send.type = 'button';
@@ -941,7 +945,7 @@ function renderPinnedBar() {
     const info = el('div', 'pinned-info');
     info.appendChild(el('strong', '', '📌 Pinned' + (pinned.length > 1 ? ' (' + (pinIndex + 1) + '/' + pinned.length + ')' : '')));
     const ps = el('span');
-    appendRich(ps, shortText(m.message, 90));
+    appendRich(ps, shortText(previewText(m), 90));
     info.appendChild(ps);
     bar.appendChild(info);
     bar.title = pinned.length > 1 ? 'Click to see message, then next pin' : 'Click to see message';
@@ -1118,6 +1122,406 @@ function setupChatExtras() {
     panel.addEventListener('click', (e) => e.stopPropagation());
     document.body.appendChild(panel);
     document.addEventListener('click', closeEmojiPanel);
+
+    setupFileSharing();     // 📎 🎤 drag & drop, upload progress
+}
+
+// =====================================================
+// FILE SHARING: chhobi, video, voice, PDF, document
+// =====================================================
+const UPLOAD_LIMIT_MB = { image: 10, video: 50, audio: 10, file: 10 };   // server er sathe mil rekhe
+const KIND_NAME = { image: 'photos', video: 'videos', audio: 'audio', file: 'files' };
+
+function fileKind(file) {
+    const t = file.type || '';
+    if (t.startsWith('image/')) return 'image';
+    if (t.startsWith('video/')) return 'video';
+    if (t.startsWith('audio/')) return 'audio';
+    return 'file';
+}
+
+function fmtSize(bytes) {
+    if (!bytes) return '';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function fmtDuration(sec) {
+    sec = Math.max(0, Math.round(sec || 0));
+    return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+
+function fileIcon(name) {
+    const ext = ((name || '').match(/\.([a-z0-9]+)$/i) || [, ''])[1].toLowerCase();
+    if (ext === 'pdf') return '📕';
+    if (['doc', 'docx', 'odt', 'rtf'].includes(ext)) return '📘';
+    if (['xls', 'xlsx', 'csv', 'ods'].includes(ext)) return '📗';
+    if (['ppt', 'pptx', 'odp'].includes(ext)) return '📙';
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '📦';
+    if (['txt', 'md'].includes(ext)) return '📄';
+    return '📎';
+}
+
+function attachLabel(type, name) {
+    if (type === 'image') return '📷 Photo';
+    if (type === 'video') return '🎬 Video';
+    if (type === 'audio') return (name || '').startsWith('voice-') ? '🎤 Voice message' : '🎵 Audio';
+    if (type === 'file') return '📎 ' + (name || 'File');
+    return '';
+}
+
+// lekha thakle lekha, nahole file er nam (reply / pin / forward preview er jonno)
+function previewText(m) {
+    return m.message || attachLabel(m.attachment_type, m.attachment_name);
+}
+
+// Cloudinary URL e "/upload/" er pore transformation boshano jay: choto kora, format bodlano
+function cldUrl(url, transform, ext) {
+    let u = transform ? url.replace('/upload/', '/upload/' + transform + '/') : url;
+    if (ext) u = u.replace(/\.[a-z0-9]+$/i, '') + '.' + ext;
+    return u;
+}
+
+// download link: chhobi/video/audio te fl_attachment = browser khulbe na, sorasori save korbe
+function downloadUrl(msg) {
+    if (msg.attachment_type === 'file') return msg.attachment_url;
+    return cldUrl(msg.attachment_url, 'fl_attachment');
+}
+
+function renderAttachment(msg) {
+    const type = msg.attachment_type;
+    const wrap = el('div', 'att');
+
+    if (type === 'image') {
+        const img = el('img', 'att-img');
+        img.src = cldUrl(msg.attachment_url, 'c_limit,w_600,q_auto,f_auto');    // choto, druto load
+        img.alt = msg.attachment_name || 'Photo';
+        img.loading = 'lazy';
+        img.addEventListener('click', (e) => { e.stopPropagation(); openLightbox(msg); });
+        wrap.appendChild(img);
+    } else if (type === 'video') {
+        const v = document.createElement('video');
+        v.className = 'att-video';
+        v.controls = true;
+        v.preload = 'metadata';
+        v.playsInline = true;
+        v.src = cldUrl(msg.attachment_url, 'q_auto', 'mp4');                  // sob phone e chole
+        v.poster = cldUrl(msg.attachment_url, 'so_0,c_limit,w_600', 'jpg');
+        wrap.appendChild(v);
+    } else if (type === 'audio') {
+        const box = el('div', 'att-audio');
+        box.appendChild(el('span', 'att-audio-icon', (msg.attachment_name || '').startsWith('voice-') ? '🎤' : '🎵'));
+        const a = document.createElement('audio');
+        a.controls = true;
+        a.preload = 'none';
+        a.src = cldUrl(msg.attachment_url, null, 'mp3');                      // iPhone o bajate pare
+        box.appendChild(a);
+        wrap.appendChild(box);
+    } else {
+        const card = el('a', 'att-file');
+        card.href = msg.attachment_url;
+        card.target = '_blank';
+        card.rel = 'noopener';
+        card.appendChild(el('span', 'att-file-icon', fileIcon(msg.attachment_name)));
+        const info = el('span', 'att-file-info');
+        info.appendChild(el('strong', '', msg.attachment_name || 'File'));
+        info.appendChild(el('small', '', fmtSize(msg.attachment_size) + ' · Tap to open'));
+        card.appendChild(info);
+        card.addEventListener('click', (e) => e.stopPropagation());
+        wrap.appendChild(card);
+    }
+
+    // sob file e ⬇ Download
+    const meta = el('div', 'att-meta');
+    const parts = [];
+    if (type === 'audio' && msg.attachment_duration) parts.push(fmtDuration(msg.attachment_duration));
+    if (type !== 'file' && msg.attachment_size) parts.push(fmtSize(msg.attachment_size));
+    meta.appendChild(el('span', '', parts.join(' · ')));
+    const dl = el('a', 'att-dl', '⬇ Download');
+    dl.href = downloadUrl(msg);
+    dl.target = '_blank';
+    dl.rel = 'noopener';
+    dl.addEventListener('click', (e) => e.stopPropagation());
+    meta.appendChild(dl);
+    wrap.appendChild(meta);
+    return wrap;
+}
+
+// ---------- Image Preview (boro kore dekha) ----------
+function closeLightbox() {
+    const lb = $('lightbox');
+    if (lb) lb.remove();
+}
+
+function openLightbox(msg) {
+    closeLightbox();
+    const ov = el('div', 'lightbox');
+    ov.id = 'lightbox';
+    const bar = el('div', 'lb-bar');
+    bar.appendChild(el('span', 'lb-name', msg.attachment_name || 'Photo'));
+    const dl = el('a', 'lb-btn', '⬇ Download');
+    dl.href = downloadUrl(msg);
+    const x = el('button', 'lb-btn', '✕');
+    x.type = 'button';
+    x.title = 'Close';
+    x.addEventListener('click', closeLightbox);
+    bar.appendChild(dl);
+    bar.appendChild(x);
+    const img = el('img', 'lb-img');
+    img.src = cldUrl(msg.attachment_url, 'q_auto,f_auto');
+    img.alt = msg.attachment_name || 'Photo';
+    ov.appendChild(bar);
+    ov.appendChild(img);
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeLightbox(); });
+    document.body.appendChild(ov);
+}
+
+// ---------- Upload (progress shoho) ----------
+function addUploadItem(name) {
+    const tray = $('uploadTray');
+    tray.hidden = false;
+    const row = el('div', 'up-item');
+    const top = el('div', 'up-top');
+    top.appendChild(el('span', 'up-name', shortText(name, 40)));
+    const pct = el('span', 'up-pct', '0%');
+    top.appendChild(pct);
+    const x = el('button', 'up-cancel', '✕');
+    x.type = 'button';
+    x.title = 'Cancel';
+    top.appendChild(x);
+    const bar = el('div', 'up-bar');
+    const fill = el('i');
+    bar.appendChild(fill);
+    row.appendChild(top);
+    row.appendChild(bar);
+    tray.appendChild(row);
+
+    const item = {
+        cancelled: false,
+        abort: null,
+        setProgress(p) { fill.style.width = p + '%'; pct.textContent = p < 100 ? p + '%' : 'Sending...'; },
+        done() { row.remove(); if (!tray.children.length) tray.hidden = true; },
+        fail(msg) { row.classList.add('failed'); pct.textContent = 'Failed'; row.title = msg; }
+    };
+    x.addEventListener('click', () => {
+        item.cancelled = true;
+        if (item.abort) item.abort();
+        item.done();
+    });
+    return item;
+}
+
+function xhrUpload(url, form, item) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) item.setProgress(Math.round(e.loaded / e.total * 100)); };
+        xhr.onload = () => {
+            let data = {};
+            try { data = JSON.parse(xhr.responseText); } catch (e) {}
+            if (xhr.status >= 200 && xhr.status < 300 && data.secure_url) resolve(data);
+            else reject(new Error((data.error && data.error.message) || 'Upload failed'));
+        };
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.onabort = () => reject(new Error('cancelled'));
+        item.abort = () => xhr.abort();
+        xhr.send(form);
+    });
+}
+
+async function uploadAndSend(file, extra) {
+    if (!activeChat) return;
+    const kind = fileKind(file);
+    const limit = UPLOAD_LIMIT_MB[kind];
+    if (file.size > limit * 1024 * 1024) {
+        alert('"' + file.name + '" is too large (' + fmtSize(file.size) + '). Max ' + limit + ' MB for ' + KIND_NAME[kind] + '.');
+        return;
+    }
+    const toId = activeChat.id;                     // upload cholar somoy chat bodlaleo thik manush pabe
+    const item = addUploadItem(file.name);
+    try {
+        // 1) server theke onumoti-potro (signature)
+        const sig = await postJSON('/api/upload/sign', { kind, size: file.size, name: file.name });
+        if (!sig.ok) throw new Error(sig.message || 'Upload not allowed');
+        if (item.cancelled) return;
+
+        // 2) browser theke sorasori Cloudinary te
+        const form = new FormData();
+        form.append('file', file);
+        Object.entries(sig.fields).forEach(([k, v]) => form.append(k, v));
+        const result = await xhrUpload(sig.uploadUrl, form, item);
+
+        // 3) message hisebe pathao
+        const attachment = {
+            url: result.secure_url,
+            public_id: result.public_id,
+            type: kind,
+            name: file.name,
+            size: result.bytes || file.size,
+            mime: file.type,
+            duration: (extra && extra.duration) || result.duration || null
+        };
+        const r = await postJSON('/api/messages/send', { receiver_id: toId, message: '', attachment });
+        if (!r.ok) throw new Error(r.message || 'Could not send file');
+        item.done();
+        if (activeChat && activeChat.id === toId) loadMessages(true);
+    } catch (err) {
+        if (item.cancelled || err.message === 'cancelled') return;
+        console.error(err);
+        item.fail(err.message);
+        alert('Could not send "' + file.name + '": ' + err.message);
+    }
+}
+
+// ekadhik file ek ek kore (je kromey bachhe sei kromey jabe)
+async function handleFiles(list) {
+    const files = [...(list || [])].slice(0, 10);
+    if (!files.length) return;
+    if (!activeChat) { alert('Open a chat first.'); return; }
+    if ((list.length || 0) > 10) alert('You can send up to 10 files at a time.');
+    for (const f of files) await uploadAndSend(f);
+}
+
+// ---------- Voice Message ----------
+let recorder = null;
+let recChunks = [];
+let recStart = 0;
+let recTimer = null;
+let recStream = null;
+let recCancelled = false;
+const REC_MAX_SEC = 120;                            // 2 minit porjonto
+
+function showRecordingBar(on) {
+    $('recBar').hidden = !on;
+    document.querySelector('.composer').classList.toggle('is-recording', on);
+    clearInterval(recTimer);
+    if (on) {
+        const t = $('recTime');
+        t.textContent = '0:00';
+        recTimer = setInterval(() => {
+            const sec = (Date.now() - recStart) / 1000;
+            t.textContent = fmtDuration(sec);
+            if (sec >= REC_MAX_SEC) stopRecording(false);
+        }, 250);
+    }
+}
+
+async function startRecording() {
+    if (!activeChat) return;
+    if (recorder && recorder.state === 'recording') return;
+    if (!navigator.mediaDevices || !window.MediaRecorder) { alert('Voice recording is not supported in this browser.'); return; }
+    try {
+        recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        alert('Microphone permission is needed to record a voice message.');
+        return;
+    }
+    const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+    recorder = new MediaRecorder(recStream, type ? { mimeType: type } : undefined);
+    recChunks = [];
+    recCancelled = false;
+    const toChat = activeChat.id;
+    recorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    recorder.onstop = () => {
+        recStream.getTracks().forEach(t => t.stop());               // mic bondho (lal biduti chole jabe)
+        const secs = Math.round((Date.now() - recStart) / 1000);
+        showRecordingBar(false);
+        if (recCancelled || secs < 1 || !recChunks.length) return;
+        if (!activeChat || activeChat.id !== toChat) return;         // onno chat e chole gele pathabo na
+        const mime = (recorder.mimeType || type || 'audio/webm').split(';')[0];
+        const ext = mime.includes('mp4') ? 'm4a' : mime.includes('ogg') ? 'ogg' : 'webm';
+        const file = new File(recChunks, 'voice-' + Date.now() + '.' + ext, { type: mime });
+        uploadAndSend(file, { duration: secs });
+    };
+    recorder.start();
+    recStart = Date.now();
+    showRecordingBar(true);
+}
+
+function stopRecording(cancel) {
+    if (!recorder || recorder.state === 'inactive') return;
+    recCancelled = !!cancel;
+    recorder.stop();
+}
+
+// ---------- Drag & Drop + Paste ----------
+function setupDropAndPaste() {
+    const chat = $('chatSection');
+    let depth = 0;
+    const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    chat.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; chat.classList.add('drag-over'); });
+    chat.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+    chat.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) chat.classList.remove('drag-over'); });
+    chat.addEventListener('drop', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault();
+        depth = 0;
+        chat.classList.remove('drag-over');
+        handleFiles(e.dataTransfer.files);
+    });
+    // screenshot copy kore Ctrl+V dileo chole jabe
+    $('messageInput').addEventListener('paste', (e) => {
+        const files = e.clipboardData && e.clipboardData.files;
+        if (files && files.length) { e.preventDefault(); handleFiles(files); }
+    });
+}
+
+function setupFileSharing() {
+    const composer = document.querySelector('.composer');
+    const input = $('messageInput');
+
+    // 📎 file bachhai
+    const picker = el('input');
+    picker.type = 'file';
+    picker.multiple = true;
+    picker.hidden = true;
+    picker.addEventListener('change', () => { handleFiles(picker.files); picker.value = ''; });
+    composer.appendChild(picker);
+
+    const attach = el('button', 'tool-btn', '📎');
+    attach.type = 'button';
+    attach.title = 'Send photo, video or file';
+    attach.setAttribute('aria-label', 'Attach file');
+    attach.addEventListener('click', () => picker.click());
+    composer.insertBefore(attach, input);
+
+    // 🎤 voice
+    const mic = el('button', 'tool-btn mic-btn', '🎤');
+    mic.type = 'button';
+    mic.title = 'Record voice message';
+    mic.setAttribute('aria-label', 'Record voice message');
+    mic.addEventListener('click', startRecording);
+    composer.insertBefore(mic, input.nextSibling);
+
+    // recording cholar somoy: 🔴 0:12  ✕  ➤
+    const rec = el('div', 'rec-bar');
+    rec.id = 'recBar';
+    rec.hidden = true;
+    rec.appendChild(el('span', 'rec-dot'));
+    const t = el('span', 'rec-time', '0:00');
+    t.id = 'recTime';
+    rec.appendChild(t);
+    rec.appendChild(el('span', 'rec-label', 'Recording...'));
+    const cancel = el('button', 'tool-btn', '✕');
+    cancel.type = 'button';
+    cancel.title = 'Cancel';
+    cancel.addEventListener('click', () => stopRecording(true));
+    const send = el('button', 'rec-send', '➤');
+    send.type = 'button';
+    send.title = 'Send voice message';
+    send.addEventListener('click', () => stopRecording(false));
+    rec.appendChild(cancel);
+    rec.appendChild(send);
+    composer.appendChild(rec);
+
+    // upload progress dekhano jayga (composer er upore)
+    const tray = el('div', 'upload-tray');
+    tray.id = 'uploadTray';
+    tray.hidden = true;
+    composer.parentNode.insertBefore(tray, composer);
+
+    setupDropAndPaste();
 }
 
 async function loadMessages(force) {
@@ -1162,11 +1566,17 @@ async function loadMessages(force) {
             } else {
                 if (msg.is_forwarded) bubble.appendChild(el('div', 'fwd-label', '➡️ Forwarded'));
                 if (msg.reply_to_id) bubble.appendChild(replyQuote(msg));
-                const text = el('span', 'msg-text');
-                text.dataset.raw = msg.message;                     // search er jonno asol lekha
-                appendRich(text, msg.message);
-                if (isEmojiOnly(msg.message)) bubble.classList.add('emoji-only');
-                bubble.appendChild(text);
+                if (msg.attachment_url) {
+                    bubble.classList.add('has-att', 'att-' + msg.attachment_type);
+                    bubble.appendChild(renderAttachment(msg));
+                }
+                if (msg.message) {
+                    const text = el('span', 'msg-text');
+                    text.dataset.raw = msg.message;                 // search er jonno asol lekha
+                    appendRich(text, msg.message);
+                    if (!msg.attachment_url && isEmojiOnly(msg.message)) bubble.classList.add('emoji-only');
+                    bubble.appendChild(text);
+                }
             }
             const edited = msg.edited_at && !msg.deleted_at ? 'edited · ' : '';
             const pinMark = msg.pinned_at && !msg.deleted_at ? '📌 ' : '';

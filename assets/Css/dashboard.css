@@ -489,3 +489,99 @@ img.emo { width: 1.3em; height: 1.3em; vertical-align: -0.3em; margin: 0 1px; di
 .msg.emoji-only { background: transparent !important; box-shadow: none !important; padding-left: 4px; padding-right: 4px; }
 .msg.emoji-only .msg-text img.emo { width: 48px; height: 48px; vertical-align: middle; }
 .msg.emoji-only .time { color: var(--text-muted); }
+
+
+/* =====================================================
+   FILE SHARING
+   ===================================================== */
+.tool-btn {
+  flex: none; width: 36px; height: 36px; display: grid; place-items: center;
+  border: none; border-radius: 50%; background: none; color: var(--text);
+  font-size: 19px; cursor: pointer;
+}
+.tool-btn:hover { background: var(--hover); }
+
+/* bubble er bhitore file */
+.msg.has-att { padding: 6px 6px 6px; }
+.msg.has-att .msg-text { display: block; padding: 6px 8px 0; }
+.msg.has-att .time { padding: 0 8px 2px; }
+.att { display: flex; flex-direction: column; gap: 6px; }
+.att-img {
+  display: block; max-width: 100%; width: 320px; max-height: 360px; object-fit: cover;
+  border-radius: 12px; cursor: zoom-in; background: var(--hover);
+}
+.att-video { display: block; width: 320px; max-width: 100%; max-height: 360px; border-radius: 12px; background: #000; }
+.att-audio { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
+.att-audio-icon { font-size: 20px; }
+.att-audio audio { width: 240px; max-width: 100%; height: 40px; }
+.att-file {
+  display: flex; align-items: center; gap: 10px; min-width: 220px; max-width: 320px;
+  padding: 10px 12px; border-radius: 12px; text-decoration: none; color: inherit;
+  background: rgba(127, 127, 127, .14);
+}
+.att-file:hover { background: rgba(127, 127, 127, .22); }
+.att-file-icon { font-size: 30px; line-height: 1; }
+.att-file-info { min-width: 0; display: flex; flex-direction: column; }
+.att-file-info strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-file-info small { font-size: 12px; opacity: .7; }
+.att-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 6px; font-size: 12px; opacity: .8; }
+.att-dl { color: inherit; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.att-dl:hover { text-decoration: underline; }
+
+/* Image Preview */
+.lightbox {
+  position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; padding: 16px;
+  background: rgba(2, 6, 23, .9);
+}
+.lb-bar { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; padding: 12px 16px; color: #fff; }
+.lb-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.lb-btn {
+  padding: 8px 14px; border: none; border-radius: 20px; cursor: pointer; text-decoration: none;
+  background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 14px;
+}
+.lb-btn:hover { background: rgba(255, 255, 255, .26); }
+.lb-img { max-width: 100%; max-height: calc(100vh - 100px); border-radius: 8px; object-fit: contain; }
+
+/* Upload Progress */
+.upload-tray { display: flex; flex-direction: column; gap: 6px; margin: 0 18px 8px; }
+.upload-tray[hidden] { display: none; }
+.up-item { padding: 8px 12px; border-radius: 12px; background: var(--pane); border: 1px solid var(--pane-line); color: var(--text); }
+.up-top { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.up-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-pct { font-variant-numeric: tabular-nums; opacity: .8; }
+.up-cancel { border: none; background: none; color: var(--text); cursor: pointer; font-size: 14px; }
+.up-bar { height: 5px; margin-top: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; }
+.up-bar i { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #2f7bff, #7c5cff); transition: width .2s; }
+.up-item.failed { border-color: #ef4444; }
+.up-item.failed .up-pct { color: #ef4444; opacity: 1; }
+
+/* Voice recording */
+.rec-bar { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rec-bar[hidden] { display: none; }
+.composer.is-recording > *:not(.rec-bar) { display: none; }
+.rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #ef4444; animation: rec-blink 1s infinite; }
+@keyframes rec-blink { 50% { opacity: .25; } }
+.rec-time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+.rec-label { flex: 1; font-size: 14px; color: var(--text-muted); }
+.rec-send {
+  flex: none; width: 46px; height: 46px; border: none; border-radius: 50%; cursor: pointer;
+  background: var(--send); color: #fff; font-size: 18px; box-shadow: 0 6px 16px rgba(124, 92, 255, .4);
+}
+
+/* Drag & Drop */
+#chatSection { position: relative; }
+#chatSection.drag-over::after {
+  content: "📎 Drop files to send"; position: absolute; inset: 10px; z-index: 50;
+  display: grid; place-items: center; border: 3px dashed #7c5cff; border-radius: 20px;
+  background: rgba(124, 92, 255, .12); color: var(--text); font-size: 20px; font-weight: 600;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .composer { gap: 4px; padding-left: 14px; }
+  .upload-tray { margin: 0 10px 8px; }
+  .att-img, .att-video { width: 240px; }
+  .att-audio audio { width: 190px; }
+  .att-file { min-width: 0; }
+}

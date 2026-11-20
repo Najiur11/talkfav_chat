@@ -87,6 +87,61 @@ function verifyToken(token) {
 }
 
 // ==========================================
+// File upload: Cloudinary (chhobi, video, voice, PDF, document)
+// Browser sorasori Cloudinary te upload kore; server shudhu ekta "onumoti-potro" (signature) dey.
+// API secret kokhono browser e jay na.
+// ==========================================
+const CLOUD = {
+    name: process.env.CLOUDINARY_CLOUD_NAME,
+    key: process.env.CLOUDINARY_API_KEY,
+    secret: process.env.CLOUDINARY_API_SECRET
+};
+const cloudReady = !!(CLOUD.name && CLOUD.key && CLOUD.secret);
+if (!cloudReady) console.warn('WARNING: Cloudinary er 3 ta .env value nai, file pathano kaj korbe na.');
+
+// kon dhoron er file koto MB porjonto (Cloudinary free plan er shima mathay rekhe)
+const UPLOAD_LIMIT_MB = { image: 10, video: 50, audio: 10, file: 10 };
+// Cloudinary te audio-o "video" dhoron e rakhte hoy, ar PDF/Word/Excel holo "raw"
+const CLOUD_RESOURCE = { image: 'image', video: 'video', audio: 'video', file: 'raw' };
+
+// Cloudinary er niyom: parameter gulo A-Z sajiye "&" diye jora, sheshe secret, tarpor SHA-1
+function cloudSign(params) {
+    const str = Object.keys(params).sort().map(k => k + '=' + params[k]).join('&');
+    return crypto.createHash('sha1').update(str + CLOUD.secret).digest('hex');
+}
+
+// unsend korle Cloudinary theke-o file muche felo (bhul hole shudhu log)
+async function cloudDestroy(publicId, type) {
+    if (!cloudReady || !publicId || !CLOUD_RESOURCE[type]) return;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const body = new URLSearchParams({
+        public_id: publicId, timestamp: String(timestamp), api_key: CLOUD.key,
+        signature: cloudSign({ public_id: publicId, timestamp })
+    });
+    try {
+        await fetch(`https://api.cloudinary.com/v1_1/${CLOUD.name}/${CLOUD_RESOURCE[type]}/destroy`, { method: 'POST', body });
+    } catch (e) { console.error('Cloudinary delete failed:', e.message); }
+}
+
+// browser theke asha attachment ta ashol kina jachai: amader Cloudinary + ei user er folder
+function cleanAttachment(a, userId) {
+    if (!a || typeof a !== 'object' || !cloudReady) return null;
+    const type = Object.keys(UPLOAD_LIMIT_MB).includes(a.type) ? a.type : null;
+    const url = typeof a.url === 'string' ? a.url : '';
+    const publicId = typeof a.public_id === 'string' ? a.public_id : '';
+    if (!type) return null;
+    if (!url.startsWith(`https://res.cloudinary.com/${CLOUD.name}/`)) return null;
+    if (!publicId.startsWith(`talkfav/${userId}/`)) return null;
+    return {
+        type, url, publicId,
+        name: String(a.name || 'file').slice(0, 200),
+        size: Math.max(0, parseInt(a.size, 10) || 0),
+        mime: String(a.mime || '').slice(0, 100),
+        duration: Number(a.duration) > 0 ? Number(a.duration) : null
+    };
+}
+
+// ==========================================
 // Realtime (Socket.IO): online status, typing, instant message
 // ==========================================
 const onlineUsers = new Map();      // userId -> koyta socket (tab) connected
@@ -271,6 +326,16 @@ async function setupDatabase() {
             pinned_by INT
         )`);
     console.log('Messages table ready!');
+
+    // file pathanor jonno notun column (age theke table thakleo jog hobe)
+    const attachmentColumns = [
+        'attachment_url TEXT', 'attachment_type VARCHAR(10)', 'attachment_name TEXT',
+        'attachment_size INT', 'attachment_mime VARCHAR(100)', 'attachment_public_id TEXT',
+        'attachment_duration REAL'
+    ];
+    for (const col of attachmentColumns) {
+        await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS ' + col);
+    }
 
     // "Delete for me": ke kon message nijer kach theke lukiyeche
     await db.query(`
@@ -464,7 +529,10 @@ app.post('/api/messages/send', handle(async (req, res) => {
     const receiver_id = parseInt(req.body.receiver_id, 10);
     const message = typeof req.body.message === 'string' ? req.body.message.trim() : '';
     let reply_to_id = parseInt(req.body.reply_to_id, 10) || null;
-    if (!receiver_id || !message || message.length > 5000) return res.status(400).json({ message: 'Invalid message.' });
+    const att = req.body.attachment ? cleanAttachment(req.body.attachment, sender_id) : null;
+    if (req.body.attachment && !att) return res.status(400).json({ message: 'Invalid file.' });
+    // lekha othoba file - je kono ekta thaktei hobe
+    if (!receiver_id || (!message && !att) || message.length > 5000) return res.status(400).json({ message: 'Invalid message.' });
 
     // shudhu friend ke message pathano jabe
     if (!(await isFriend(sender_id, receiver_id))) {
@@ -480,10 +548,14 @@ app.post('/api/messages/send', handle(async (req, res) => {
         if (!check.rows.length) reply_to_id = null;
     }
 
-    const { rows } = await db.query(
-        'INSERT INTO messages (sender_id, receiver_id, message, reply_to_id) VALUES ($1, $2, $3, $4) RETURNING id',
-        [sender_id, receiver_id, message, reply_to_id]
-    );
+    const { rows } = await db.query(`
+        INSERT INTO messages (sender_id, receiver_id, message, reply_to_id,
+            attachment_url, attachment_type, attachment_name, attachment_size,
+            attachment_mime, attachment_public_id, attachment_duration)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id
+    `, [sender_id, receiver_id, message, reply_to_id,
+        att && att.url, att && att.type, att && att.name, att && att.size,
+        att && att.mime, att && att.publicId, att && att.duration]);
     const payload = { id: rows[0].id, sender_id, receiver_id };
     emitToUser(receiver_id, 'message:new', payload);     // jar kache gelo
     emitToUser(sender_id, 'message:new', payload);       // nijer onno tab
@@ -495,7 +567,14 @@ app.get('/api/messages/unread/:userId', handle(async (req, res) => {
     if (!sameUser(req, res, req.params.userId)) return;
     // COUNT(*) postgres e "bigint" (lekha hisebe ase), tai ::int diye number banai
     const { rows } = await db.query(`
-        SELECT m.sender_id, c.cnt AS count, m.id AS last_id, m.message AS last_message
+        SELECT m.sender_id, c.cnt AS count, m.id AS last_id,
+               CASE WHEN m.message <> '' THEN m.message
+                    WHEN m.attachment_type = 'image' THEN '📷 Photo'
+                    WHEN m.attachment_type = 'video' THEN '🎬 Video'
+                    WHEN m.attachment_type = 'audio' AND m.attachment_name LIKE 'voice-%' THEN '🎤 Voice message'
+                    WHEN m.attachment_type = 'audio' THEN '🎵 Audio'
+                    WHEN m.attachment_type = 'file' THEN '📎 ' || m.attachment_name
+                    ELSE '' END AS last_message
         FROM messages m
         JOIN (
             SELECT sender_id, COUNT(*)::int AS cnt, MAX(id) AS mx
@@ -518,7 +597,9 @@ app.get('/api/messages/:user1/:user2', handle(async (req, res) => {
         SELECT m.*,
                r.message    AS reply_message,
                r.sender_id  AS reply_sender_id,
-               r.deleted_at AS reply_deleted_at
+               r.deleted_at AS reply_deleted_at,
+               r.attachment_type AS reply_attachment_type,
+               r.attachment_name AS reply_attachment_name
         FROM messages m
         LEFT JOIN message_hidden h ON h.message_id = m.id AND h.user_id = $1
         LEFT JOIN messages r ON r.id = m.reply_to_id
@@ -574,16 +655,29 @@ app.post('/api/messages/unsend', handle(async (req, res) => {
     const message_id = parseInt(req.body.message_id, 10);
     if (!message_id) return res.status(400).json({ message: 'message_id is required' });
 
-    // lekha ta muche felo, row ta rakho (soft delete). RETURNING = bodlano row ta ferot dey
-    const { rows } = await db.query(`
-        UPDATE messages SET message = '', deleted_at = NOW(), pinned_at = NULL, pinned_by = NULL
+    const found = await db.query(`
+        SELECT receiver_id, attachment_public_id, attachment_type FROM messages
         WHERE id = $1 AND sender_id = $2 AND deleted_at IS NULL
-        RETURNING receiver_id
     `, [message_id, req.userId]);
-    if (!rows.length) return res.status(404).json({ message: 'Message not found.' });
+    if (!found.rows.length) return res.status(404).json({ message: 'Message not found.' });
+    const old = found.rows[0];
 
+    // lekha + file muche felo, row ta rakho (soft delete)
+    await db.query(`
+        UPDATE messages SET message = '', deleted_at = NOW(), pinned_at = NULL, pinned_by = NULL,
+            attachment_url = NULL, attachment_type = NULL, attachment_name = NULL, attachment_size = NULL,
+            attachment_mime = NULL, attachment_public_id = NULL, attachment_duration = NULL
+        WHERE id = $1
+    `, [message_id]);
     await db.query('DELETE FROM message_reactions WHERE message_id = $1', [message_id]);
-    emitToUser(rows[0].receiver_id, 'message:changed', { id: message_id });
+
+    // file ta forward kore onno kotha-o thakte pare - shudhu keu ar na use korle Cloudinary theke muchbo
+    if (old.attachment_public_id) {
+        const still = await db.query('SELECT 1 FROM messages WHERE attachment_public_id = $1 LIMIT 1', [old.attachment_public_id]);
+        if (!still.rows.length) cloudDestroy(old.attachment_public_id, old.attachment_type);
+    }
+
+    emitToUser(old.receiver_id, 'message:changed', { id: message_id });
     emitToUser(req.userId, 'message:changed', { id: message_id });
     res.status(200).json({ ok: true, message: 'Message unsent.' });
 }));
@@ -629,7 +723,7 @@ app.post('/api/messages/forward', handle(async (req, res) => {
 
     // je message forward korbo seta amar conversation er, ar unsend kora na
     const { rows } = await db.query(`
-        SELECT message FROM messages
+        SELECT 1 FROM messages
         WHERE id = $1 AND deleted_at IS NULL AND (sender_id = $2 OR receiver_id = $2)
     `, [message_id, req.userId]);
     if (!rows.length) return res.status(404).json({ message: 'Message not found.' });
@@ -639,15 +733,57 @@ app.post('/api/messages/forward', handle(async (req, res) => {
     const targets = [...new Set(ids)].filter(id => friendIds.includes(id));
     if (!targets.length) return res.status(403).json({ message: 'You can only forward to your friends.' });
 
-    // unnest = list er protita id er jonno ekta kore row (ek query te sob)
+    // unnest = list er protita id er jonno ekta kore row (ek query te sob). File thakle seta-o copy
     await db.query(`
-        INSERT INTO messages (sender_id, receiver_id, message, is_forwarded)
-        SELECT $1::int, unnest($2::int[]), $3::text, TRUE
-    `, [req.userId, targets, rows[0].message]);
+        INSERT INTO messages (sender_id, receiver_id, message, is_forwarded,
+            attachment_url, attachment_type, attachment_name, attachment_size,
+            attachment_mime, attachment_public_id, attachment_duration)
+        SELECT $1::int, t.id, m.message, TRUE,
+            m.attachment_url, m.attachment_type, m.attachment_name, m.attachment_size,
+            m.attachment_mime, m.attachment_public_id, m.attachment_duration
+        FROM messages m, unnest($2::int[]) AS t(id)
+        WHERE m.id = $3
+    `, [req.userId, targets, message_id]);
 
     targets.forEach(id => emitToUser(id, 'message:new', { sender_id: req.userId, receiver_id: id }));
     emitToUser(req.userId, 'message:new', {});
     res.status(200).json({ ok: true, count: targets.length, message: 'Forwarded.' });
+}));
+
+// ==========================================
+// 5d. FILE UPLOAD: Cloudinary signature
+// ==========================================
+app.post('/api/upload/sign', handle(async (req, res) => {
+    if (!cloudReady) return res.status(503).json({ message: 'File upload is not set up on the server yet.' });
+    const kind = req.body.kind;
+    const size = Number(req.body.size) || 0;
+    const name = String(req.body.name || 'file');
+    if (!UPLOAD_LIMIT_MB[kind]) return res.status(400).json({ message: 'Unknown file type.' });
+    if (!size || size > UPLOAD_LIMIT_MB[kind] * 1024 * 1024) {
+        return res.status(413).json({ message: `File is too large. Max ${UPLOAD_LIMIT_MB[kind]} MB.` });
+    }
+
+    // protita user er alada "folder" (public_id er shurute), nam e random ongsho,
+    // tai keu onner file er nam anuman korte parbe na
+    const extMatch = name.match(/\.([a-z0-9]{1,8})$/i);
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';
+    const base = name.replace(/\.[^.]*$/, '').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 40) || 'file';
+    // PDF/Word (raw) e extension nam er moddhei rakhte hoy, nahole download e file er dhoron hariye jay
+    const public_id = `talkfav/${req.userId}/` + crypto.randomBytes(6).toString('hex') + '_' + base +
+        (kind === 'file' && ext ? '.' + ext : '');
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    // browser ei "fields" gulo hubohu file er sathe Cloudinary te pathabe
+    res.status(200).json({
+        ok: true,
+        uploadUrl: `https://api.cloudinary.com/v1_1/${CLOUD.name}/${CLOUD_RESOURCE[kind]}/upload`,
+        fields: {
+            api_key: CLOUD.key,
+            timestamp: String(timestamp),
+            public_id,
+            signature: cloudSign({ public_id, timestamp })
+        }
+    });
 }));
 
 // ==========================================
