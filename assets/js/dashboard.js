@@ -717,6 +717,16 @@ function renderProfile(body) {
     });
     card.appendChild(rows);
 
+    // ---- Install app (PWA) ----
+    if (window.TalkFavPWA) {
+        const st = window.TalkFavPWA.state();
+        const ib = el('button', 'btn-install', st.installed ? '✅ TalkFav app is installed' : '📲 Install TalkFav app');
+        ib.type = 'button';
+        ib.disabled = st.installed;
+        ib.addEventListener('click', () => window.TalkFavPWA.install());
+        card.appendChild(ib);
+    }
+
     const out = el('button', 'btn-logout', 'Log Out');
     out.type = 'button';
     out.addEventListener('click', logout);

@@ -790,3 +790,7 @@ img.emo { width: 1.3em; height: 1.3em; vertical-align: -0.3em; margin: 0 1px; di
 
 /* TURN diye call cholle quality badge e " · Relay" */
 .call-quality.relay b::after { content: " · Relay"; font-weight: 400; opacity: .8; }
+
+/* My Profile: app install button */
+.btn-install { display: block; width: 100%; margin-top: 14px; padding: 12px; border: none; border-radius: 14px; background: var(--hover); color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
+.btn-install:disabled { opacity: .7; cursor: default; }

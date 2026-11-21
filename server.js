@@ -29,6 +29,18 @@ app.get('/index.html', sendPage('index.html'));
 app.get('/register.html', sendPage('register.html'));
 app.get('/dashboard.html', sendPage('dashboard.html'));
 
+// PWA: phone e app hisebe install (manifest + service worker + icon)
+app.get('/manifest.webmanifest', (req, res) => {
+    res.type('application/manifest+json');
+    res.sendFile(path.join(__dirname, 'manifest.webmanifest'));
+});
+app.get('/sw.js', (req, res) => {
+    res.set('Cache-Control', 'no-cache');                 // service worker sobsomoy notun ta check korbe
+    res.type('application/javascript');
+    res.sendFile(path.join(__dirname, 'sw.js'));
+});
+app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'assets', 'icons', 'favicon.ico')));
+
 // ==========================================
 // Database: PostgreSQL (Aiven). .env e DATABASE_URL lagbe
 // ==========================================
