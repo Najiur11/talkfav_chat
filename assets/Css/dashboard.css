@@ -794,3 +794,103 @@ img.emo { width: 1.3em; height: 1.3em; vertical-align: -0.3em; margin: 0 1px; di
 /* My Profile: app install button */
 .btn-install { display: block; width: 100%; margin-top: 14px; padding: 12px; border: none; border-radius: 14px; background: var(--hover); color: var(--text); font: inherit; font-weight: 700; cursor: pointer; }
 .btn-install:disabled { opacity: .7; cursor: default; }
+
+
+/* =====================================================
+   LINK PREVIEW
+   ===================================================== */
+.msg-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.msg.them .msg-link { color: #2f7bff; }
+[data-theme="dark"] .msg.them .msg-link { color: #7cb3ff; }
+.msg.has-link { max-width: min(70%, 360px); }
+.link-card {
+  display: flex; flex-direction: column; margin: 8px 0 2px; border-radius: 12px; overflow: hidden;
+  text-decoration: none; color: inherit; background: rgba(127, 127, 127, .14);
+  border-left: 3px solid #7c5cff;
+}
+.link-card:hover { background: rgba(127, 127, 127, .22); }
+.link-img { display: block; width: 100%; max-height: 180px; object-fit: cover; background: rgba(127, 127, 127, .2); }
+.link-body { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; min-width: 0; }
+.link-site { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; opacity: .7; }
+.link-title { font-size: 14px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.link-desc { font-size: 12px; opacity: .8; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 900px) { .msg.has-link { max-width: 82%; } }
+
+
+/* =====================================================
+   CHAT LIST: pin / archive / mute
+   ===================================================== */
+.chat-row { position: relative; }
+.chat-row:hover { background: var(--hover); }
+.chat-row:focus-visible { outline: 2px solid #7c5cff; outline-offset: -2px; }
+.chat-flags { flex: none; display: flex; gap: 2px; font-size: 12px; opacity: .75; }
+.chat-more { flex: none; width: 30px; height: 30px; font-size: 18px; font-weight: 700; color: var(--text); opacity: 0; }
+.chat-row:hover .chat-more, .chat-row.active .chat-more, .chat-more:focus-visible { opacity: 1; }
+@media (hover: none) { .chat-more { opacity: .6; } }
+.archive-row { color: var(--text-muted); }
+.archive-icon { width: 46px; text-align: center; font-size: 20px; }
+.mention-badge {
+  flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%;
+  background: #7c5cff; color: #fff; font-size: 12px; font-weight: 800;
+}
+.saved-btn { flex: none; font-size: 18px; }
+.tool-btn[hidden] { display: none; }
+
+/* =====================================================
+   @MENTION
+   ===================================================== */
+.mention-box {
+  position: fixed; z-index: 1300; max-height: 260px; overflow-y: auto; padding: 6px;
+  background: var(--card); color: var(--text); border: 1px solid var(--card-border); border-radius: 14px; box-shadow: var(--shadow);
+}
+.mention-box[hidden] { display: none; }
+[data-theme="dark"] .mention-box { background: #16213a; }
+.mention-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; border-radius: 10px;
+  background: none; color: inherit; font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.mention-item:hover, .mention-item.sel { background: var(--hover); }
+.mention { font-weight: 700; color: #7c5cff; }
+.msg.me .mention { color: inherit; text-decoration: underline; }
+.mention.me { background: rgba(124, 92, 255, .18); border-radius: 4px; padding: 0 2px; }
+.msg.mentions-me { box-shadow: 0 0 0 2px rgba(124, 92, 255, .55); }
+
+/* =====================================================
+   POLL
+   ===================================================== */
+.msg.has-poll { min-width: min(300px, 80%); }
+.poll-card { display: flex; flex-direction: column; gap: 6px; }
+.poll-q { font-weight: 700; font-size: 15px; }
+.poll-sub { opacity: .7; font-size: 12px; }
+.poll-opt {
+  position: relative; display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; overflow: hidden;
+  border: 1px solid rgba(127, 127, 127, .3); border-radius: 10px; background: rgba(127, 127, 127, .08);
+  color: inherit; font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+}
+.poll-opt:disabled { cursor: default; }
+.poll-opt:not(:disabled):hover { border-color: #7c5cff; }
+.poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(124, 92, 255, .22); transition: width .3s; }
+.poll-opt.mine { border-color: #7c5cff; }
+.poll-check { position: relative; width: 16px; font-weight: 800; color: #7c5cff; }
+.msg.me .poll-check { color: inherit; }
+.poll-text { position: relative; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.poll-count { position: relative; font-size: 12px; opacity: .8; white-space: nowrap; }
+.poll-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; opacity: .85; }
+.poll-close { border: none; background: none; color: inherit; font: inherit; font-size: 12px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.poll-opts { display: flex; flex-direction: column; gap: 6px; }
+.poll-opt-row { display: flex; gap: 6px; align-items: center; }
+.poll-opt-row .picker-search { flex: 1; }
+.poll-opt-row .icon-btn { color: var(--text); }
+
+/* =====================================================
+   SAVED MESSAGES
+   ===================================================== */
+.saved-list { display: flex; flex-direction: column; gap: 6px; max-height: 65vh; overflow-y: auto; }
+.saved-item {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: none; border-radius: 12px;
+  background: var(--hover); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.saved-item:hover { outline: 1px solid #7c5cff; }
+.saved-top { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.saved-top small { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-text { font-size: 14px; overflow-wrap: anywhere; }

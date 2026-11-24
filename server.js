@@ -6,6 +6,11 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
+const dns = require('dns').promises;
+const net = require('net');
+// Push notification library (npm install korle pawa jabe; na thakle push bondho, baki sob chole)
+let webpush = null;
+try { webpush = require('web-push'); } catch (e) { webpush = null; }
 require('dotenv').config();
 
 const app = express();
@@ -244,6 +249,53 @@ function emitToUser(userId, event, payload) {
     io.to('user:' + userId).emit(event, payload);
 }
 
+// ==========================================
+// Push Notification (app bondho thakleo phone e notification)
+// .env: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (mailto:tomar@email.com)
+// ==========================================
+const VAPID = { pub: process.env.VAPID_PUBLIC_KEY, priv: process.env.VAPID_PRIVATE_KEY, subject: process.env.VAPID_SUBJECT || 'mailto:admin@talkfav.app' };
+let pushReady = false;
+if (webpush && VAPID.pub && VAPID.priv) {
+    try { webpush.setVapidDetails(VAPID.subject, VAPID.pub, VAPID.priv); pushReady = true; }
+    catch (e) { console.error('VAPID setup failed:', e.message); }
+} else {
+    console.warn('WARNING: Push notification bondho (web-push install / VAPID key nai).');
+}
+
+function previewText(message, attType, attName) {
+    if (message) return message.length > 120 ? message.slice(0, 120) + '…' : message;
+    if (attType === 'image') return '📷 Photo';
+    if (attType === 'video') return '🎬 Video';
+    if (attType === 'audio') return (attName || '').startsWith('voice-') ? '🎤 Voice message' : '🎵 Audio';
+    if (attType === 'file') return '📎 ' + (attName || 'File');
+    return 'New message';
+}
+
+// je user ra ekhon online na (app khola nei), shudhu tader phone e push
+async function sendPush(userIds, payload) {
+    if (!pushReady) return;
+    const targets = [...new Set(userIds)].filter(id => id && !onlineUsers.has(id));
+    if (!targets.length) return;
+    let subs;
+    try {
+        subs = (await db.query('SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ANY($1::int[])', [targets])).rows;
+    } catch (e) { return; }
+    const body = JSON.stringify(payload);
+    await Promise.all(subs.map(sub =>
+        webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, body, { TTL: 3600 })
+            .catch(err => {
+                // device theke unsubscribe hoye gechhe -> muche felo
+                if (err.statusCode === 404 || err.statusCode === 410) db.query('DELETE FROM push_subscriptions WHERE id = $1', [sub.id]).catch(() => {});
+            })
+    ));
+}
+
+// friend er chat mute kora kina
+async function isDmMuted(userId, friendId) {
+    const { rows } = await db.query("SELECT muted FROM chat_settings WHERE user_id = $1 AND chat_type = 'u' AND chat_id = $2", [userId, friendId]);
+    return !!(rows[0] && rows[0].muted);
+}
+
 // ---------- audio/video call (shudhu signaling; audio/video browser to browser) ----------
 const activeCalls = new Map();      // userId -> call { caller, callee, accepted, timer }
 
@@ -291,6 +343,10 @@ function saveMissedCall(caller, callee, video) {
         emitToUser(caller, 'calls:changed', {});
         emitToUser(callee, 'calls:changed', {});
         emitToUser(callee, 'call:missed', { from: caller });
+        return db.query('SELECT name FROM users WHERE id = $1', [caller]);
+    }).then(r => {
+        const name = r && r.rows[0] ? r.rows[0].name : 'Someone';
+        sendPush([callee], { title: '📞 Missed call', body: 'from ' + name + (video ? ' (video)' : ''), tag: 'call-' + caller, url: '/dashboard.html' });
     }).catch(err => console.error('call log failed:', err.message));
 }
 
@@ -481,6 +537,73 @@ async function setupDatabase() {
     // server bondho hoye gele je call "ringing" e atke chhilo
     await db.query("UPDATE calls SET status = 'missed', ended_at = NOW() WHERE status = 'ringing'");
 
+    // Google Login
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT');
+    await db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google ON users (google_id) WHERE google_id IS NOT NULL');
+
+    // Push Notification: protita device er subscription
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            endpoint TEXT NOT NULL UNIQUE,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions (user_id)');
+
+    // @Mention: kake kake daka hoyeche
+    await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS mentions INT[]');
+
+    // Poll
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS polls (
+            id SERIAL PRIMARY KEY,
+            message_id INT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+            question TEXT NOT NULL,
+            options JSONB NOT NULL,
+            multiple BOOLEAN NOT NULL DEFAULT FALSE,
+            closed BOOLEAN NOT NULL DEFAULT FALSE,
+            created_by INT REFERENCES users(id) ON DELETE SET NULL
+        )`);
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS poll_votes (
+            poll_id INT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            option_index INT NOT NULL,
+            PRIMARY KEY (poll_id, user_id, option_index)
+        )`);
+
+    // Saved Messages (star)
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS saved_messages (
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            message_id INT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (user_id, message_id)
+        )`);
+
+    // Pin / Archive / Mute chat (protita user er nijer setting). chat_type: 'u' = friend, 'g' = group
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS chat_settings (
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            chat_type CHAR(1) NOT NULL,
+            chat_id INT NOT NULL,
+            pinned_at TIMESTAMPTZ,
+            archived BOOLEAN NOT NULL DEFAULT FALSE,
+            muted BOOLEAN NOT NULL DEFAULT FALSE,
+            PRIMARY KEY (user_id, chat_type, chat_id)
+        )`);
+
+    // Link Preview cache: eki link bar bar ana lagbe na
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS link_previews (
+            url TEXT PRIMARY KEY,
+            data JSONB,
+            fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+
     // Last Seen: shesh kokhon online chhilo
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ');
 
@@ -574,7 +697,7 @@ async function setupDatabase() {
 // Login check: register/login chhara sob /api e token lagbe
 // ==========================================
 app.use('/api', (req, res, next) => {
-    if (req.path === '/register' || req.path === '/login') return next();
+    if (req.path === '/register' || req.path === '/login' || req.path === '/config' || req.path === '/auth/google') return next();
     const header = req.headers.authorization || '';
     const userId = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : '');
     if (!userId) return res.status(401).json({ message: 'Please login again.' });
@@ -959,9 +1082,12 @@ app.post('/api/messages/send', handle(async (req, res) => {
     // lekha othoba file - je kono ekta thaktei hobe
     if ((!receiver_id && !group_id) || (!message && !att) || message.length > 5000) return res.status(400).json({ message: 'Invalid message.' });
 
+    let groupRow = null;
+    let mentions = null;
     if (group_id) {
         // group: member hote hobe; "shudhu admin message dite parbe" setting thakle admin
         const g = await groupAccess(group_id, sender_id);
+        groupRow = g;
         if (!g) return res.status(403).json({ message: 'You are not a member of this group.' });
         if (g.send_permission === 'admins' && g.role !== 'admin') {
             return res.status(403).json({ message: 'Only admins can send messages in this group.' });
@@ -969,6 +1095,13 @@ app.post('/api/messages/send', handle(async (req, res) => {
     } else if (!(await isFriend(sender_id, receiver_id))) {
         // shudhu friend ke message pathano jabe
         return res.status(403).json({ message: 'You can only message your friends.' });
+    }
+
+    // @Mention: shudhu ei group er member der (nijeke na)
+    if (group_id && Array.isArray(req.body.mention_ids) && req.body.mention_ids.length) {
+        const memberIds = await groupMemberIds(group_id);
+        const ids = [...new Set(req.body.mention_ids.map(Number))].filter(id => id !== sender_id && memberIds.includes(id));
+        if (ids.length) mentions = ids.slice(0, 50);
     }
 
     // reply: je message e reply, seta eki conversation er hote hobe
@@ -985,21 +1118,38 @@ app.post('/api/messages/send', handle(async (req, res) => {
     const { rows } = await db.query(`
         INSERT INTO messages (sender_id, receiver_id, group_id, message, reply_to_id,
             attachment_url, attachment_type, attachment_name, attachment_size,
-            attachment_mime, attachment_public_id, attachment_duration)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
+            attachment_mime, attachment_public_id, attachment_duration, mentions)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id
     `, [sender_id, receiver_id, group_id, message, reply_to_id,
         att && att.url, att && att.type, att && att.name, att && att.size,
-        att && att.mime, att && att.publicId, att && att.duration]);
+        att && att.mime, att && att.publicId, att && att.duration, mentions]);
 
     if (group_id) {
         await db.query('UPDATE group_members SET last_read_id = $1 WHERE group_id = $2 AND user_id = $3', [rows[0].id, group_id, sender_id]);
-        emitMany(await groupMemberIds(group_id), 'group:message', { group_id, id: rows[0].id, sender_id });
+        emitMany(await groupMemberIds(group_id), 'group:message', { group_id, id: rows[0].id, sender_id, mentions: mentions || [] });
     } else {
         const payload = { id: rows[0].id, sender_id, receiver_id };
         emitToUser(receiver_id, 'message:new', payload);     // jar kache gelo
         emitToUser(sender_id, 'message:new', payload);       // nijer onno tab
     }
     res.status(200).json({ ok: true, message: 'Message sent!' });
+
+    // ---- Push (response pathanor por, tai deri hoy na) ----
+    try {
+        const me = (await db.query('SELECT name FROM users WHERE id = $1', [sender_id])).rows[0];
+        const name = me ? me.name : 'Someone';
+        const text = previewText(message, att && att.type, att && att.name);
+        if (group_id) {
+            // mute na kora member ra; mention kora hole mute holeo pabe
+            const { rows: mem } = await db.query('SELECT user_id, muted FROM group_members WHERE group_id = $1 AND user_id <> $2', [group_id, sender_id]);
+            const mentioned = mentions || [];
+            const normal = mem.filter(m => !m.muted && !mentioned.includes(m.user_id)).map(m => m.user_id);
+            sendPush(normal, { title: '👥 ' + groupRow.name, body: name.split(' ')[0] + ': ' + text, tag: 'group-' + group_id, url: '/dashboard.html' });
+            if (mentioned.length) sendPush(mentioned, { title: '@ ' + name + ' mentioned you', body: groupRow.name + ': ' + text, tag: 'mention-' + group_id, url: '/dashboard.html' });
+        } else if (!(await isDmMuted(receiver_id, sender_id))) {
+            sendPush([receiver_id], { title: name, body: text, tag: 'dm-' + sender_id, url: '/dashboard.html' });
+        }
+    } catch (e) { console.error('push failed:', e.message); }
 }));
 
 // NOTE: eta '/api/messages/:user1/:user2' er AGE thakte hobe
@@ -1057,10 +1207,12 @@ async function fetchConversation(convoSql, convoParams, userId, q) {
                r.deleted_at AS reply_deleted_at,
                r.attachment_type AS reply_attachment_type,
                r.attachment_name AS reply_attachment_name,
-               ru.name AS reply_sender_name
+               ru.name AS reply_sender_name,
+               (sv.message_id IS NOT NULL) AS saved
         FROM messages m
         JOIN users su ON su.id = m.sender_id
         LEFT JOIN message_hidden h ON h.message_id = m.id AND h.user_id = ${hiddenFor}
+        LEFT JOIN saved_messages sv ON sv.message_id = m.id AND sv.user_id = ${hiddenFor}
         LEFT JOIN messages r ON r.id = m.reply_to_id
         LEFT JOIN users ru ON ru.id = r.sender_id
         WHERE (${convoSql}) AND h.message_id IS NULL ${extra}
@@ -1082,6 +1234,7 @@ async function fetchConversation(convoSql, convoParams, userId, q) {
         const byMsg = {};
         reactions.forEach(r => { (byMsg[r.message_id] = byMsg[r.message_id] || []).push({ user_id: r.user_id, reaction: r.reaction }); });
         rows.forEach(m => { m.reactions = byMsg[m.id] || []; });
+        await attachPolls(rows, userId);
     }
 
     // pin kora message alada kore (purono message load na thakleo pinned bar e dekhabe)
@@ -1401,6 +1554,450 @@ app.get('/api/ice-servers', handle(async (req, res) => {
 }));
 
 // ==========================================
+// 5h. LINK PREVIEW: link er chhobi, shironam, bibaron
+// Browser onner site sorasori porte pare na (CORS), tai server ene dey.
+// Nirapotta: shudhu http/https, private / local IP te jabo na (SSRF), 6 sec timeout, 600 KB porjonto
+// ==========================================
+const PREVIEW_TTL_DAYS = 7;
+const previewRate = new Map();                     // userId -> { count, start } (minit e 30 bar)
+
+function isPrivateIp(ip) {
+    if (net.isIPv4(ip)) {
+        const [a, b] = ip.split('.').map(Number);
+        return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+            (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+    }
+    const low = ip.toLowerCase();
+    if (low.startsWith('::ffff:')) return isPrivateIp(low.slice(7));
+    return low === '::1' || low === '::' || low.startsWith('fc') || low.startsWith('fd') || low.startsWith('fe80');
+}
+
+// link ta ki nirapod public site? (localhost / ghorer router / server er bhitor na)
+async function safePublicUrl(raw) {
+    let u;
+    try { u = new URL(raw); } catch (e) { return null; }
+    if (!['http:', 'https:'].includes(u.protocol)) return null;
+    if (u.port && !['80', '443'].includes(u.port)) return null;
+    if (u.username || u.password) return null;
+    const host = u.hostname.replace(/^\[|\]$/g, '');
+    if (!host || host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return null;
+    try {
+        const addrs = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true });
+        if (!addrs.length || addrs.some(a => isPrivateIp(a.address))) return null;
+    } catch (e) { return null; }
+    return u;
+}
+
+function decodeEntities(str) {
+    return String(str || '')
+        .replace(/&#x([0-9a-f]+);/gi, (m, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch (e) { return m; } })
+        .replace(/&#(\d+);/g, (m, d) => { try { return String.fromCodePoint(parseInt(d, 10)); } catch (e) { return m; } })
+        .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ').trim();
+}
+
+// <meta property="og:title" content="..."> theke tottho
+function parseMeta(html, pageUrl) {
+    const head = html.slice(0, 300000);
+    const meta = {};
+    const tagRe = /<meta\b[^>]*>/gi;
+    let m;
+    while ((m = tagRe.exec(head))) {
+        const tag = m[0];
+        const key = (tag.match(/\b(?:property|name|itemprop)\s*=\s*["']([^"']+)["']/i) || [])[1];
+        const val = (tag.match(/\bcontent\s*=\s*"([^"]*)"/i) || tag.match(/\bcontent\s*=\s*'([^']*)'/i) || [])[1];
+        if (key && val !== undefined && !meta[key.toLowerCase()]) meta[key.toLowerCase()] = val;
+    }
+    const titleTag = (head.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1];
+    const pick = (...keys) => { for (const k of keys) if (meta[k]) return decodeEntities(meta[k]); return ''; };
+
+    let image = pick('og:image:secure_url', 'og:image', 'og:image:url', 'twitter:image', 'twitter:image:src', 'image');
+    if (image) {
+        try {
+            const abs = new URL(image, pageUrl);
+            if (abs.protocol === 'http:') abs.protocol = 'https:';          // https page e http chhobi dekhay na
+            image = abs.protocol === 'https:' ? abs.href : '';
+        } catch (e) { image = ''; }
+    }
+    const title = pick('og:title', 'twitter:title') || decodeEntities(titleTag);
+    const description = pick('og:description', 'twitter:description', 'description');
+    const site = pick('og:site_name', 'application-name') || new URL(pageUrl).hostname.replace(/^www\./, '');
+    if (!title && !description && !image) return null;
+    return {
+        url: pageUrl,
+        title: title.slice(0, 200),
+        description: description.slice(0, 300),
+        image: image.slice(0, 1000),
+        site: site.slice(0, 100)
+    };
+}
+
+// page ana: redirect nijei mani (protita dhape abar nirapotta check), boro page er shudhu shurur ongsho
+// YouTube bot der page dey na, tai tader oEmbed API theke shironam + thumbnail
+function youtubeId(rawUrl) {
+    try {
+        const u = new URL(rawUrl);
+        const host = u.hostname.replace(/^www\.|^m\./, '');
+        if (host === 'youtu.be') return u.pathname.slice(1).split('/')[0] || null;
+        if (u.searchParams.get('v')) return u.searchParams.get('v');
+        const m = u.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]{6,})/);
+        return m ? m[1] : null;
+    } catch (e) { return null; }
+}
+
+async function youtubePreview(rawUrl) {
+    const id = youtubeId(rawUrl);
+    // oEmbed na pele-o (kichu server er IP YouTube atkay) video id theke thumbnail dekhai
+    const fallback = id && /^[\w-]{6,20}$/.test(id) ? {
+        url: rawUrl, title: 'YouTube video', description: '',
+        image: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg', site: 'YouTube'
+    } : null;
+    try {
+        const r = await fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent(rawUrl), { signal: AbortSignal.timeout(6000) });
+        if (!r.ok) return fallback;
+        const d = await r.json();
+        return {
+            url: rawUrl,
+            title: String(d.title || '').slice(0, 200),
+            description: d.author_name ? 'by ' + String(d.author_name).slice(0, 100) : '',
+            image: /^https:\/\//.test(d.thumbnail_url || '') ? d.thumbnail_url : '',
+            site: 'YouTube'
+        };
+    } catch (e) { return fallback; }
+}
+
+async function fetchPreview(rawUrl) {
+    try {
+        const host = new URL(rawUrl).hostname.replace(/^www\.|^m\./, '');
+        if (host === 'youtube.com' || host === 'youtu.be' || host === 'music.youtube.com') return youtubePreview(rawUrl);
+    } catch (e) { return null; }
+    let current = rawUrl;
+    for (let hop = 0; hop < 4; hop++) {
+        const u = await safePublicUrl(current);
+        if (!u) return null;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        let res;
+        try {
+            res = await fetch(u.href, {
+                redirect: 'manual',
+                signal: controller.signal,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (compatible; TalkFavBot/1.0; +https://talkfav-chat.onrender.com)',
+                    'Accept': 'text/html,application/xhtml+xml',
+                    'Accept-Language': 'en,bn;q=0.8'
+                }
+            });
+        } catch (e) { clearTimeout(timer); return null; }
+
+        if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+            clearTimeout(timer);
+            current = new URL(res.headers.get('location'), u).href;
+            continue;
+        }
+        if (!res.ok || !/text\/html|application\/xhtml/i.test(res.headers.get('content-type') || '')) { clearTimeout(timer); return null; }
+
+        // 600 KB porjonto porhi (puro boro page na)
+        const reader = res.body.getReader();
+        const chunks = [];
+        let size = 0;
+        try {
+            while (size < 600000) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                size += value.length;
+            }
+        } catch (e) { /* timeout hole ja peyechi tai diye */ }
+        clearTimeout(timer);
+        try { reader.cancel(); } catch (e) {}
+        const html = new TextDecoder('utf-8').decode(Buffer.concat(chunks.map(c => Buffer.from(c))));
+        return parseMeta(html, u.href);
+    }
+    return null;
+}
+
+app.get('/api/link-preview', handle(async (req, res) => {
+    const raw = String(req.query.url || '').trim().slice(0, 2000);
+    if (!/^https?:\/\//i.test(raw)) return res.status(400).json({ message: 'Invalid link.' });
+
+    // cache e thakle sorasori (na paoa gulo-o 1 din mone rakhi)
+    const cached = await db.query('SELECT data, fetched_at FROM link_previews WHERE url = $1', [raw]);
+    if (cached.rows.length) {
+        const row = cached.rows[0];
+        const ageDays = (Date.now() - new Date(row.fetched_at).getTime()) / 86400000;
+        // pawa gele 7 din, na pele 1 ghonta por abar cheshta
+        if (ageDays < (row.data ? PREVIEW_TTL_DAYS : 1 / 24)) return res.status(200).json({ preview: row.data });
+    }
+
+    // ekjon minit e 30 tar beshi notun link ante parbe na
+    const now = Date.now();
+    const r = previewRate.get(req.userId) || { count: 0, start: now };
+    if (now - r.start > 60000) { r.count = 0; r.start = now; }
+    if (++r.count > 30) return res.status(429).json({ message: 'Too many previews. Try again in a minute.' });
+    previewRate.set(req.userId, r);
+
+    let preview = null;
+    try { preview = await fetchPreview(raw); } catch (e) { preview = null; }
+    await db.query(`
+        INSERT INTO link_previews (url, data, fetched_at) VALUES ($1, $2, NOW())
+        ON CONFLICT (url) DO UPDATE SET data = EXCLUDED.data, fetched_at = NOW()
+    `, [raw, preview ? JSON.stringify(preview) : null]);
+    res.status(200).json({ preview });
+}));
+
+// ==========================================
+// 8. CONFIG (login er age-o lage): Google client id, push key
+// ==========================================
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+if (!GOOGLE_CLIENT_ID) console.warn('WARNING: GOOGLE_CLIENT_ID nai, Google Login bondho.');
+
+app.get('/api/config', (req, res) => {
+    res.status(200).json({ googleClientId: GOOGLE_CLIENT_ID || null, vapidPublicKey: pushReady ? VAPID.pub : null });
+});
+
+// ==========================================
+// 9. GOOGLE LOGIN
+// Browser Google theke ekta "ID token" pay; amra Google ke diyei seta jachai kori
+// ==========================================
+app.post('/api/auth/google', handle(async (req, res) => {
+    if (!GOOGLE_CLIENT_ID) return res.status(503).json({ message: 'Google login is not set up yet.' });
+    const credential = typeof req.body.credential === 'string' ? req.body.credential : '';
+    const accessToken = typeof req.body.access_token === 'string' ? req.body.access_token : '';
+    if (!credential && !accessToken) return res.status(400).json({ message: 'Google sign-in failed.' });
+    const fail = () => res.status(401).json({ message: 'Google sign-in failed. Please try again.' });
+
+    let info;
+    if (accessToken) {
+        // amader nijer design er button: Google "access token" dey.
+        // Age dekhi token ta AMADER app er jonno deya kina (onner app er token chalano jabe na)
+        const t = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(accessToken), { signal: AbortSignal.timeout(8000) });
+        if (!t.ok) return fail();
+        const ti = await t.json();
+        if ((ti.aud !== GOOGLE_CLIENT_ID && ti.azp !== GOOGLE_CLIENT_ID) || !(Number(ti.expires_in) > 0)) return fail();
+        // tarpor nam, email, chhobi
+        const u = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(8000)
+        });
+        if (!u.ok) return fail();
+        const ui = await u.json();
+        if (!ui.sub || ui.sub !== ti.sub) return fail();
+        info = { sub: ui.sub, email: ui.email, email_verified: ui.email_verified, name: ui.name, picture: ui.picture };
+        if (String(info.email_verified) !== 'true' || !info.email) return fail();
+    } else {
+        // Google er official button: "ID token"
+        const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential), { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) return fail();
+        info = await r.json();
+        // token ta amader app er jonno, Google er deya, meyad ache, email jachai kora
+        const okIssuer = info.iss === 'accounts.google.com' || info.iss === 'https://accounts.google.com';
+        if (info.aud !== GOOGLE_CLIENT_ID || !okIssuer || Number(info.exp) * 1000 < Date.now() || String(info.email_verified) !== 'true' || !info.email) {
+            return fail();
+        }
+    }
+    const email = String(info.email).toLowerCase();
+    const name = String(info.name || email.split('@')[0]).slice(0, 255);
+
+    // age Google diye, ba eki email e account thakle sei account; nahole notun
+    let { rows } = await db.query('SELECT * FROM users WHERE google_id = $1 OR LOWER(email) = $2 ORDER BY (google_id = $1) DESC LIMIT 1', [info.sub, email]);
+    let user = rows[0];
+    if (user) {
+        if (!user.google_id) await db.query('UPDATE users SET google_id = $1 WHERE id = $2', [info.sub, user.id]);
+    } else {
+        const randomPass = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);   // password diye login kora jabe na
+        const ins = await db.query(
+            'INSERT INTO users (name, email, phone, password, google_id, avatar) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [name, email, '', randomPass, info.sub, /^https:\/\//.test(info.picture || '') ? info.picture : null]
+        );
+        user = ins.rows[0];
+    }
+    res.status(200).json({
+        message: 'Login successful!',
+        user: {
+            id: user.id, name: user.name, email: user.email, country: user.country, phone: user.phone,
+            avatar: user.avatar || null, cover: user.cover || null, token: signToken(user.id)
+        }
+    });
+}));
+
+// ==========================================
+// 10. PUSH SUBSCRIBE
+// ==========================================
+app.post('/api/push/subscribe', handle(async (req, res) => {
+    const sub = req.body.subscription || {};
+    const endpoint = typeof sub.endpoint === 'string' ? sub.endpoint : '';
+    const keys = sub.keys || {};
+    if (!/^https:\/\//.test(endpoint) || !keys.p256dh || !keys.auth || endpoint.length > 1000) {
+        return res.status(400).json({ message: 'Invalid subscription.' });
+    }
+    await db.query(`
+        INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1, $2, $3, $4)
+        ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth
+    `, [req.userId, endpoint, String(keys.p256dh).slice(0, 200), String(keys.auth).slice(0, 100)]);
+    res.status(200).json({ ok: true });
+}));
+
+app.post('/api/push/unsubscribe', handle(async (req, res) => {
+    const endpoint = typeof req.body.endpoint === 'string' ? req.body.endpoint : '';
+    await db.query('DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2', [endpoint, req.userId]);
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
+// 11. POLL (group e vote)
+// ==========================================
+async function attachPolls(messages, userId) {
+    const ids = messages.map(m => m.id);
+    if (!ids.length) return;
+    const { rows: polls } = await db.query('SELECT * FROM polls WHERE message_id = ANY($1::int[])', [ids]);
+    if (!polls.length) return;
+    const { rows: votes } = await db.query('SELECT poll_id, user_id, option_index FROM poll_votes WHERE poll_id = ANY($1::int[])', [polls.map(p => p.id)]);
+    const byMsg = {};
+    polls.forEach(p => {
+        const pv = votes.filter(v => v.poll_id === p.id);
+        const counts = p.options.map((_, i) => pv.filter(v => v.option_index === i).length);
+        byMsg[p.message_id] = {
+            id: p.id, question: p.question, options: p.options, multiple: p.multiple, closed: p.closed,
+            created_by: p.created_by, counts,
+            voters: new Set(pv.map(v => v.user_id)).size,
+            mine: pv.filter(v => v.user_id === userId).map(v => v.option_index)
+        };
+    });
+    messages.forEach(m => { if (byMsg[m.id]) m.poll = byMsg[m.id]; });
+}
+
+async function pollWithAccess(pollId, userId) {
+    const { rows } = await db.query('SELECT p.*, m.group_id, m.deleted_at FROM polls p JOIN messages m ON m.id = p.message_id WHERE p.id = $1', [pollId]);
+    const p = rows[0];
+    if (!p || p.deleted_at) return null;
+    const g = await groupAccess(p.group_id, userId);
+    if (!g) return null;
+    p.myRole = g.role;
+    return p;
+}
+
+app.post('/api/polls', handle(async (req, res) => {
+    const group_id = parseInt(req.body.group_id, 10);
+    const question = typeof req.body.question === 'string' ? req.body.question.trim().slice(0, 300) : '';
+    const options = (Array.isArray(req.body.options) ? req.body.options : [])
+        .map(o => String(o || '').trim().slice(0, 100)).filter(Boolean);
+    const unique = [...new Set(options)];
+    if (!group_id || !question || unique.length < 2 || unique.length > 10) {
+        return res.status(400).json({ message: 'A poll needs a question and 2 to 10 different options.' });
+    }
+    const g = await groupAccess(group_id, req.userId);
+    if (!g) return res.status(403).json({ message: 'You are not a member of this group.' });
+    if (g.send_permission === 'admins' && g.role !== 'admin') return res.status(403).json({ message: 'Only admins can send messages in this group.' });
+
+    const { rows } = await db.query(
+        'INSERT INTO messages (sender_id, group_id, message) VALUES ($1, $2, $3) RETURNING id',
+        [req.userId, group_id, '📊 ' + question]
+    );
+    await db.query(
+        'INSERT INTO polls (message_id, question, options, multiple, created_by) VALUES ($1, $2, $3, $4, $5)',
+        [rows[0].id, question, JSON.stringify(unique), !!req.body.multiple, req.userId]
+    );
+    await db.query('UPDATE group_members SET last_read_id = $1 WHERE group_id = $2 AND user_id = $3', [rows[0].id, group_id, req.userId]);
+    emitMany(await groupMemberIds(group_id), 'group:message', { group_id, id: rows[0].id, sender_id: req.userId, mentions: [] });
+    res.status(200).json({ ok: true });
+}));
+
+// vote: amar ager vote bodle notun ta (ekta na onek, poll er setting onujayi). Khali dile vote tule nay
+app.post('/api/polls/:id/vote', handle(async (req, res) => {
+    const p = await pollWithAccess(parseInt(req.params.id, 10), req.userId);
+    if (!p) return res.status(404).json({ message: 'Poll not found.' });
+    if (p.closed) return res.status(400).json({ message: 'This poll is closed.' });
+    let choice = (Array.isArray(req.body.options) ? req.body.options : []).map(Number)
+        .filter(i => Number.isInteger(i) && i >= 0 && i < p.options.length);
+    choice = [...new Set(choice)];
+    if (!p.multiple) choice = choice.slice(0, 1);
+    await db.query('DELETE FROM poll_votes WHERE poll_id = $1 AND user_id = $2', [p.id, req.userId]);
+    if (choice.length) {
+        await db.query('INSERT INTO poll_votes (poll_id, user_id, option_index) SELECT $1, $2, unnest($3::int[])', [p.id, req.userId, choice]);
+    }
+    emitMany(await groupMemberIds(p.group_id), 'message:changed', { id: p.message_id, group_id: p.group_id });
+    res.status(200).json({ ok: true });
+}));
+
+app.post('/api/polls/:id/close', handle(async (req, res) => {
+    const p = await pollWithAccess(parseInt(req.params.id, 10), req.userId);
+    if (!p) return res.status(404).json({ message: 'Poll not found.' });
+    if (p.created_by !== req.userId && p.myRole !== 'admin') return res.status(403).json({ message: 'Only the poll creator or an admin can close it.' });
+    await db.query('UPDATE polls SET closed = TRUE WHERE id = $1', [p.id]);
+    emitMany(await groupMemberIds(p.group_id), 'message:changed', { id: p.message_id, group_id: p.group_id });
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
+// 12. SAVED MESSAGES (star)
+// ==========================================
+app.post('/api/messages/save', handle(async (req, res) => {
+    const message_id = parseInt(req.body.message_id, 10);
+    const m = message_id && await messageAccess(message_id, req.userId);
+    if (!m || m.is_system) return res.status(404).json({ message: 'Message not found.' });
+    if (req.body.save === false) await db.query('DELETE FROM saved_messages WHERE user_id = $1 AND message_id = $2', [req.userId, message_id]);
+    else await db.query('INSERT INTO saved_messages (user_id, message_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [req.userId, message_id]);
+    emitToUser(req.userId, 'message:changed', { id: message_id, group_id: m.group_id });
+    res.status(200).json({ ok: true });
+}));
+
+app.get('/api/messages/saved', handle(async (req, res) => {
+    // shudhu ekhono dekhte pari emon (group theke ber hoye gele sei group er gulo na)
+    const { rows } = await db.query(`
+        SELECT m.id, m.message, m.attachment_url, m.attachment_type, m.attachment_name, m.created_at,
+               m.sender_id, su.name AS sender_name, su.avatar AS sender_avatar,
+               m.group_id, g.name AS group_name, g.photo AS group_photo,
+               CASE WHEN m.group_id IS NULL THEN (CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END) END AS peer_id,
+               s.saved_at
+        FROM saved_messages s
+        JOIN messages m ON m.id = s.message_id
+        JOIN users su ON su.id = m.sender_id
+        LEFT JOIN chat_groups g ON g.id = m.group_id
+        WHERE s.user_id = $1 AND m.deleted_at IS NULL
+          AND (m.group_id IS NULL OR EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = m.group_id AND gm.user_id = $1))
+        ORDER BY s.saved_at DESC LIMIT 200
+    `, [req.userId]);
+    res.status(200).json({ saved: rows });
+}));
+
+// ==========================================
+// 13. PIN / ARCHIVE / MUTE CHAT
+// ==========================================
+app.get('/api/chat-settings', handle(async (req, res) => {
+    const { rows } = await db.query('SELECT chat_type, chat_id, pinned_at, archived, muted FROM chat_settings WHERE user_id = $1', [req.userId]);
+    res.status(200).json({ settings: rows });
+}));
+
+app.post('/api/chat-settings', handle(async (req, res) => {
+    const type = req.body.type === 'g' ? 'g' : (req.body.type === 'u' ? 'u' : null);
+    const id = parseInt(req.body.id, 10);
+    if (!type || !id) return res.status(400).json({ message: 'Invalid chat.' });
+    // nijer chat i hote hobe
+    if (type === 'g' ? !(await groupAccess(id, req.userId)) : !(await isFriend(req.userId, id))) {
+        return res.status(404).json({ message: 'Chat not found.' });
+    }
+    const cur = (await db.query('SELECT * FROM chat_settings WHERE user_id = $1 AND chat_type = $2 AND chat_id = $3', [req.userId, type, id])).rows[0]
+        || { pinned_at: null, archived: false, muted: false };
+    let pinned_at = req.body.pinned === undefined ? cur.pinned_at : (req.body.pinned ? new Date() : null);
+    let archived = req.body.archived === undefined ? cur.archived : !!req.body.archived;
+    const muted = req.body.muted === undefined ? cur.muted : !!req.body.muted;
+    if (req.body.archived === true) pinned_at = null;     // archive korle pin uthe jay
+    if (pinned_at) archived = false;                       // pin korle archive theke ber hoy
+    await db.query(`
+        INSERT INTO chat_settings (user_id, chat_type, chat_id, pinned_at, archived, muted) VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (user_id, chat_type, chat_id) DO UPDATE SET pinned_at = EXCLUDED.pinned_at, archived = EXCLUDED.archived, muted = EXCLUDED.muted
+    `, [req.userId, type, id, pinned_at, archived, muted]);
+    // group er mute group_members e-o (group notification er jonno)
+    if (type === 'g' && req.body.muted !== undefined) {
+        await db.query('UPDATE group_members SET muted = $1 WHERE group_id = $2 AND user_id = $3', [muted, id, req.userId]);
+    }
+    emitToUser(req.userId, 'chat-settings:changed', {});
+    if (type === 'g') emitToUser(req.userId, 'groups:changed', { group_id: id });
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
 // 5c. REACTION / PIN
 // ==========================================
 const REACTIONS = ['love', 'haha', 'like', 'wow', 'fire'];
@@ -1515,6 +2112,9 @@ app.get('/api/groups', handle(async (req, res) => {
                (SELECT COUNT(*)::int FROM messages m
                  WHERE m.group_id = g.id AND m.id > gm.last_read_id AND m.sender_id <> $1
                    AND m.deleted_at IS NULL AND m.is_system = FALSE) AS unread,
+               (SELECT COUNT(*)::int FROM messages m
+                 WHERE m.group_id = g.id AND m.id > gm.last_read_id AND m.deleted_at IS NULL
+                   AND $1 = ANY(m.mentions)) AS mention_unread,
                lm.id AS last_id, lm.created_at AS last_at, lm.is_system AS last_is_system,
                lm.sender_id AS last_sender_id, lu.name AS last_sender_name,
                CASE WHEN lm.message <> '' THEN lm.message

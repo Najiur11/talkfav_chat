@@ -42,6 +42,9 @@ const PAGE_SIZE = 50;           // ekbare koyta message (server er sathe mil)
 let hasMoreOlder = false;       // upore aro purono message ache kina
 let loadingOlder = false;
 let pinnedList = [];            // server theke pin kora message (purono holeo)
+let chatSettings = {};          // 'u5' / 'g3' -> { pinned_at, archived, muted }
+let showArchived = false;       // Chats e archive kora gulo dekhachhi kina
+let mentionPicks = new Map();   // composer e @ diye bachha: nam -> user id
 
 // reaction: database e shudhu key, screen e emoji
 const REACTION_EMOJI = { love: '❤️', haha: '😂', like: '👍', wow: '😳', fire: '🔥' };
@@ -75,6 +78,85 @@ function appendRich(parent, text) {
         i = m.index + m[0].length;
     }
     if (i < (text || '').length) parent.appendChild(document.createTextNode(text.slice(i)));
+}
+
+// ---------- Link: lekhar bhitor link clickable + preview card ----------
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"']*[^\s<>"'.,;:!?)\]}]/gi;
+
+function linkHref(raw) { return /^https?:\/\//i.test(raw) ? raw : 'https://' + raw; }
+
+// message er lekha: link gulo <a>, baki tuku emoji soho
+function appendMessageText(parent, text) {
+    text = text || '';
+    let i = 0;
+    for (const m of text.matchAll(URL_RE)) {
+        if (m.index > i) appendRich(parent, text.slice(i, m.index));
+        const a = document.createElement('a');
+        a.className = 'msg-link';
+        a.href = linkHref(m[0]);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = m[0];
+        a.addEventListener('click', (e) => e.stopPropagation());
+        parent.appendChild(a);
+        i = m.index + m[0].length;
+    }
+    if (i < text.length) appendRich(parent, text.slice(i));
+}
+
+function firstLink(text) {
+    const m = (text || '').match(URL_RE);
+    return m ? linkHref(m[0]) : null;
+}
+
+const previewCache = new Map();         // url -> { data } (null = preview nai) | { pending: Promise }
+
+function linkCard(p) {
+    const card = el('a', 'link-card');
+    card.href = p.url;
+    card.target = '_blank';
+    card.rel = 'noopener noreferrer';
+    card.addEventListener('click', (e) => e.stopPropagation());
+    if (p.image) {
+        const img = el('img', 'link-img');
+        img.src = p.image;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        img.onerror = () => img.remove();                  // chhobi na ashle shudhu lekha
+        card.appendChild(img);
+    }
+    const body = el('span', 'link-body');
+    if (p.site) body.appendChild(el('small', 'link-site', p.site));
+    if (p.title) body.appendChild(el('strong', 'link-title', p.title));
+    if (p.description) body.appendChild(el('span', 'link-desc', p.description));
+    card.appendChild(body);
+    return card;
+}
+
+// bubble e preview: cache e thakle sathe sathe, na thakle server theke ene boshabo
+function attachLinkPreview(bubble, url, msgId) {
+    const hit = previewCache.get(url);
+    if (hit && 'data' in hit) {
+        if (hit.data) bubble.insertBefore(linkCard(hit.data), bubble.querySelector('.time'));
+        return;
+    }
+    let pending = hit && hit.pending;
+    if (!pending) {
+        pending = request('/api/link-preview?url=' + encodeURIComponent(url))
+            .then(d => { const data = (d && d.preview) || null; previewCache.set(url, { data }); return data; })
+            .catch(() => { previewCache.delete(url); return null; });
+        previewCache.set(url, { pending });
+    }
+    pending.then(data => {
+        if (!data) return;
+        const box = $('messageContainer');
+        const target = box.querySelector('.msg[data-id="' + msgId + '"]');
+        if (!target || target.querySelector('.link-card')) return;
+        const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+        target.insertBefore(linkCard(data), target.querySelector('.time'));
+        if (nearBottom) box.scrollTop = box.scrollHeight;     // card ashle niche thako
+    });
 }
 
 // shudhu 1-3 ta emoji thakle boro kore dekhabo (Messenger er moto)
@@ -217,6 +299,8 @@ function init() {
     setInterval(loadFriends, 15000);    // notun friend / photo
     setInterval(loadGroups, 15000);     // group (backup, socket na thakle)
     loadGroups();
+    loadChatSettings();
+    initPush();                         // aage permission dile app bondho thakleo notification
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && activeChat) { loadMessages(true); markActiveRead(); }
@@ -230,7 +314,9 @@ function init() {
     }, { once: true });
 }
 
-function logout() {
+async function logout() {
+    // ei device e ar notification na (beshi deri hole opekkha kori na)
+    try { await Promise.race([unsubscribePush(), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
     localStorage.removeItem('user');
     window.location.href = 'index.html';
 }
@@ -313,7 +399,7 @@ function emptyNote(text, buttonText, onClick) {
     return box;
 }
 
-// ---- Chats (group + friend eksathe) ----
+// ---- Chats (group + friend eksathe, pin / archive / mute soho) ----
 function renderChats(body) {
     const row = el('div', 'search-row');
     const field = el('div', 'search-field');
@@ -324,6 +410,11 @@ function renderChats(body) {
     input.value = friendFilter;
     field.appendChild(input);
     row.appendChild(field);
+    const saved = el('button', 'icon-btn saved-btn', '⭐');
+    saved.type = 'button';
+    saved.title = 'Saved messages';
+    saved.addEventListener('click', openSavedMessages);
+    row.appendChild(saved);
     const newGroup = el('button', 'btn-pill new-group-btn', '＋ Group');
     newGroup.type = 'button';
     newGroup.title = 'Create a new group';
@@ -337,28 +428,50 @@ function renderChats(body) {
     const draw = () => {
         list.innerHTML = '';
         const q = friendFilter.toLowerCase();
-        // unread agey, tarpor shesh message onujayi
-        const rows = [
-            ...groups.map(g => ({ type: 'group', g, name: g.name, unread: isActive({ isGroup: true, id: g.id }) ? 0 : (g.unread || 0), order: g.last_id || 0 })),
-            ...friends.map(f => ({ type: 'friend', f, name: f.name, email: f.email, unread: (unread[f.id] || {}).count || 0, order: (unread[f.id] || {}).last_id || 0 }))
-        ]
-            .filter(r => r.name.toLowerCase().includes(q) || (r.email || '').toLowerCase().includes(q))
-            .sort((a, b) => (Math.sign(b.unread) - Math.sign(a.unread)) || (b.order - a.order) || a.name.localeCompare(b.name));
+        const all = [
+            ...groups.map(g => ({ type: 'group', key: 'g' + g.id, g, name: g.name, unread: isActive({ isGroup: true, id: g.id }) ? 0 : (g.unread || 0), order: g.last_id || 0 })),
+            ...friends.map(f => ({ type: 'friend', key: 'u' + f.id, f, name: f.name, email: f.email, unread: (unread[f.id] || {}).count || 0, order: (unread[f.id] || {}).last_id || 0 }))
+        ].filter(r => r.name.toLowerCase().includes(q) || (r.email || '').toLowerCase().includes(q));
+
+        const st = (r) => chatSettings[r.key] || {};
+        const archivedRows = all.filter(r => st(r).archived);
+        // pin agey (notun pin upore), tarpor unread, tarpor shesh message
+        const rows = all.filter(r => !!st(r).archived === showArchived).sort((a, b) => {
+            const pa = st(a).pinned_at ? new Date(st(a).pinned_at).getTime() : 0;
+            const pb = st(b).pinned_at ? new Date(st(b).pinned_at).getTime() : 0;
+            return (pb - pa) || (Math.sign(b.unread) - Math.sign(a.unread)) || (b.order - a.order) || a.name.localeCompare(b.name);
+        });
 
         if (friends.length === 0 && groups.length === 0) {
             list.appendChild(emptyNote('No chats yet.', 'Find People', () => switchTab('find')));
             return;
         }
+
+        // "Archived (3)" / "← Back to chats"
+        if (showArchived || archivedRows.length) {
+            const unreadArch = archivedRows.reduce((n, r) => n + r.unread, 0);
+            const ar = el('button', 'item archive-row');
+            ar.type = 'button';
+            ar.appendChild(el('span', 'archive-icon', showArchived ? '←' : '🗄️'));
+            ar.appendChild(el('strong', '', showArchived ? 'Back to chats' : 'Archived (' + archivedRows.length + ')'));
+            if (!showArchived && unreadArch) ar.appendChild(el('b', 'badge muted', String(unreadArch)));
+            ar.addEventListener('click', () => { showArchived = !showArchived; draw(); });
+            list.appendChild(ar);
+        }
+
         if (rows.length === 0) {
-            list.appendChild(emptyNote('No chat matches your search.'));
+            list.appendChild(emptyNote(showArchived ? 'No archived chats.' : 'No chat matches your search.'));
             return;
         }
 
         rows.forEach(r => {
-            if (r.type === 'group') {
+            const s0 = st(r);
+            const isGroup = r.type === 'group';
+            const muted = isGroup ? !!r.g.muted : !!s0.muted;
+            const item = el('div', 'item chat-row' + (isActive(isGroup ? { isGroup: true, id: r.g.id } : r.f) ? ' active' : '') + (r.unread ? ' has-unread' : ''));
+            item.tabIndex = 0;
+            if (isGroup) {
                 const g = r.g;
-                const item = el('button', 'item' + (isActive({ isGroup: true, id: g.id }) ? ' active' : '') + (r.unread ? ' has-unread' : ''));
-                item.type = 'button';
                 const av = el('div', 'av-wrap');
                 av.appendChild(makeAvatar(g.name, 'group-av', g.photo));
                 av.appendChild(el('i', 'group-mark', '👥'));
@@ -373,31 +486,83 @@ function renderChats(body) {
                 else sub = (g.last_sender_id === currentUser.id ? 'You' : (g.last_sender_name || '').split(' ')[0]) + ': ' + (g.last_message || '');
                 info.appendChild(el('small', typers ? 'typing-now' : '', sub));
                 item.appendChild(info);
-                if (g.muted) item.appendChild(el('span', 'muted-icon', '🔕'));
-                if (r.unread) item.appendChild(el('b', 'badge' + (g.muted ? ' muted' : ''), r.unread > 99 ? '99+' : String(r.unread)));
+                if (g.mention_unread && r.unread) item.appendChild(el('b', 'mention-badge', '@'));
                 item.addEventListener('click', () => openGroup(g));
-                list.appendChild(item);
             } else {
                 const f = r.f;
                 const u = unread[f.id];
-                const item = el('button', 'item' + (isActive(f) ? ' active' : '') + (u ? ' has-unread' : ''));
-                item.type = 'button';
                 item.appendChild(avatarWithStatus(f.name, f.avatar, f.id));
                 const info = el('div', 'item-body');
                 info.appendChild(el('strong', '', f.name));
                 const typing = !!typingFrom[f.id];
                 info.appendChild(el('small', typing ? 'typing-now' : '', typing ? 'typing...' : (u ? u.last_message : (f.email || ''))));
                 item.appendChild(info);
-                if (u) item.appendChild(el('b', 'badge', u.count > 99 ? '99+' : String(u.count)));
                 item.addEventListener('click', () => openChat(f));
-                list.appendChild(item);
             }
+            item.addEventListener('keydown', (e) => { if (e.key === 'Enter') item.click(); });
+            const flags = el('span', 'chat-flags');
+            if (s0.pinned_at) flags.appendChild(el('span', '', '📌'));
+            if (muted) flags.appendChild(el('span', '', '🔕'));
+            if (flags.children.length) item.appendChild(flags);
+            if (r.unread) item.appendChild(el('b', 'badge' + (muted ? ' muted' : ''), r.unread > 99 ? '99+' : String(r.unread)));
+
+            // ⋯ : Pin / Archive / Mute
+            const more = el('button', 'icon-btn chat-more', '⋯');
+            more.type = 'button';
+            more.title = 'Chat options';
+            more.addEventListener('click', (e) => { e.stopPropagation(); openActionMenu(more, chatOptionItems(r)); });
+            item.appendChild(more);
+            item.addEventListener('contextmenu', (e) => { e.preventDefault(); openActionMenu(more, chatOptionItems(r)); });
+            list.appendChild(item);
         });
     };
 
     input.addEventListener('input', () => { friendFilter = input.value.trim(); draw(); });
     draw();
     redrawChats = draw;
+}
+
+// ---------- Pin / Archive / Mute chat ----------
+async function loadChatSettings() {
+    try {
+        const data = await request('/api/chat-settings');
+        const next = {};
+        (data.settings || []).forEach(r => { next[r.chat_type + r.chat_id] = r; });
+        chatSettings = next;
+        updateBadges();
+        if (activeTab === 'chats' && redrawChats) redrawChats();
+    } catch (err) { console.error(err); }
+}
+
+function isChatMuted(type, id) {
+    if (type === 'g') { const g = groups.find(x => x.id === id); return !!(g && g.muted); }
+    return !!(chatSettings['u' + id] || {}).muted;
+}
+
+function chatOptionItems(r) {
+    const type = r.type === 'group' ? 'g' : 'u';
+    const id = r.type === 'group' ? r.g.id : r.f.id;
+    const s0 = chatSettings[type + id] || {};
+    const muted = isChatMuted(type, id);
+    return [
+        { label: s0.pinned_at ? '📍 Unpin chat' : '📌 Pin chat', action: () => setChatSetting(type, id, { pinned: !s0.pinned_at }) },
+        { label: s0.archived ? '📤 Unarchive' : '🗄️ Archive', action: () => setChatSetting(type, id, { archived: !s0.archived }) },
+        { label: muted ? '🔔 Unmute' : '🔕 Mute', action: () => setChatSetting(type, id, { muted: !muted }) }
+    ];
+}
+
+async function setChatSetting(type, id, change) {
+    try {
+        const r = await postJSON('/api/chat-settings', Object.assign({ type, id }, change));
+        if (!r.ok) { alert(r.message || 'Could not update chat.'); return; }
+        if (change.muted !== undefined && type === 'g') {
+            const g = groups.find(x => x.id === id);
+            if (g) g.muted = change.muted;
+        }
+        await loadChatSettings();
+        if (change.archived) showToast('Archived', 'Find it under "Archived" at the top of Chats.');
+        else if (change.muted !== undefined) showToast('Notifications', change.muted ? 'Chat muted 🔕' : 'Chat unmuted 🔔');
+    } catch (err) { console.error(err); }
 }
 
 // ---- My Friends ----
@@ -717,6 +882,12 @@ function renderProfile(body) {
     });
     card.appendChild(rows);
 
+    // ---- Push notification ----
+    const pushBtn = el('button', 'btn-install', '🔔 Notifications: checking...');
+    pushBtn.type = 'button';
+    card.appendChild(pushBtn);
+    refreshPushButton(pushBtn);
+
     // ---- Install app (PWA) ----
     if (window.TalkFavPWA) {
         const st = window.TalkFavPWA.state();
@@ -961,10 +1132,11 @@ function openMsgMenu(msg, anchor) {
             { label: '↩️ Reply',   action: () => startReply(msg) },
             { label: '➡️ Forward', action: () => openForward(msg) },
             { label: '📋 Copy',    action: () => navigator.clipboard && navigator.clipboard.writeText(msg.message || msg.attachment_url || '') },
-            { label: msg.pinned_at ? '📍 Unpin' : '📌 Pin', action: () => togglePin(msg) }
+            { label: msg.pinned_at ? '📍 Unpin' : '📌 Pin', action: () => togglePin(msg) },
+            { label: msg.saved ? '☆ Unsave' : '⭐ Save', action: () => toggleSave(msg) }
         ];
         if (isMe) {
-            if (msg.message) items.push({ label: '✏️ Edit',   action: () => startEdit(msg) });   // shudhu lekha edit hoy
+            if (msg.message && !msg.poll) items.push({ label: '✏️ Edit',   action: () => startEdit(msg) });   // shudhu lekha edit hoy
             items.push({ label: '🚫 Unsend', action: () => unsendMessage(msg), danger: true });
         }
         items.push({ label: '🗑️ Delete for me', action: () => deleteForMe(msg), danger: true });
@@ -1353,7 +1525,7 @@ function applySearch() {
         const hit = q && lower.includes(q);
         if (!hit && !span.querySelector('mark')) return;            // kichu bodlanor nai
         span.textContent = '';                                      // purono highlight muche felo
-        if (!hit) { appendRich(span, raw); return; }
+        if (!hit) { appendMessageText(span, raw); return; }
         let i = 0, at;
         while ((at = lower.indexOf(q, i)) !== -1) {
             appendRich(span, raw.slice(i, at));
@@ -1464,7 +1636,7 @@ function setupChatExtras() {
         e.stopPropagation();
         if (!activeChat) return;
         if (activeChat.isGroup) openActionMenu(hmore, groupMenuItems());
-        else openActionMenu(hmore, friendMenuItems(activeChat, 'friend'));
+        else openActionMenu(hmore, friendMenuItems(activeChat, 'friend').concat(chatOptionItems({ type: 'friend', f: activeChat })));
     });
     actions.appendChild(hmore);
     ['chatTitle', 'chatAvatar'].forEach(id => {
@@ -1504,6 +1676,357 @@ function setupChatExtras() {
     document.addEventListener('click', closeEmojiPanel);
 
     setupFileSharing();     // 📎 🎤 drag & drop, upload progress
+}
+
+// =====================================================
+// PUSH NOTIFICATION (app bondho thakleo)
+// =====================================================
+let appConfig = null;
+async function getConfig() {
+    if (appConfig) return appConfig;
+    try { appConfig = await (await fetch(API + '/api/config')).json(); } catch (e) { appConfig = {}; }
+    return appConfig;
+}
+
+function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+function urlB64ToUint8Array(base64) {
+    const padding = '='.repeat((4 - base64.length % 4) % 4);
+    const raw = atob((base64 + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+// browser theke "subscription" niye server e pathai
+async function subscribePush(askPermission) {
+    if (!pushSupported()) return 'unsupported';
+    const cfg = await getConfig();
+    if (!cfg.vapidPublicKey) return 'off';
+    let perm = Notification.permission;
+    if (perm === 'default' && askPermission) perm = await Notification.requestPermission();
+    if (perm !== 'granted') return perm;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(cfg.vapidPublicKey) });
+    await postJSON('/api/push/subscribe', { subscription: sub.toJSON() });
+    return 'granted';
+}
+
+async function unsubscribePush() {
+    if (!pushSupported()) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+        await postJSON('/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+        await sub.unsubscribe().catch(() => {});
+    }
+}
+
+// age permission dile chupchap chalu kori (notun device / login er por)
+function initPush() {
+    if (pushSupported() && Notification.permission === 'granted') subscribePush(false).catch(console.error);
+}
+
+async function refreshPushButton(btn) {
+    const setLabel = (text, disabled) => { btn.textContent = text; btn.disabled = !!disabled; };
+    if (!pushSupported()) {
+        const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+        setLabel(ios ? '🔔 Notifications: install the app first (Share → Add to Home Screen)' : '🔔 Notifications not supported in this browser', true);
+        return;
+    }
+    const cfg = await getConfig();
+    if (!cfg.vapidPublicKey) { setLabel('🔔 Notifications are not set up on the server yet', true); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    const on = Notification.permission === 'granted' && !!sub;
+    if (Notification.permission === 'denied') { setLabel('🔕 Notifications blocked (allow them in browser settings)', true); return; }
+    setLabel(on ? '🔔 Notifications: ON (tap to turn off)' : '🔕 Notifications: OFF (tap to turn on)');
+    btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+            if (on) await unsubscribePush();
+            else {
+                const r = await subscribePush(true);
+                if (r !== 'granted') alert(r === 'denied' ? 'Notifications are blocked. Allow them in your browser settings.' : 'Could not turn on notifications.');
+            }
+        } catch (err) { console.error(err); alert('Could not change notifications.'); }
+        refreshPushButton(btn);
+    };
+}
+
+// =====================================================
+// @MENTION (group e)
+// =====================================================
+let mentionBox = null;
+
+function setupMentions(input) {
+    mentionBox = el('div', 'mention-box');
+    mentionBox.hidden = true;
+    document.body.appendChild(mentionBox);
+    input.addEventListener('input', () => updateMentionBox(input));
+    input.addEventListener('keydown', (e) => {
+        if (mentionBox.hidden) return;
+        const items = [...mentionBox.querySelectorAll('.mention-item')];
+        let idx = items.findIndex(i => i.classList.contains('sel'));
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            idx = (idx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items.forEach((it, i) => it.classList.toggle('sel', i === idx));
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            if (idx >= 0) { e.preventDefault(); e.stopImmediatePropagation(); items[idx].click(); }
+        } else if (e.key === 'Escape') {
+            mentionBox.hidden = true;
+        }
+    }, true);
+    input.addEventListener('blur', () => setTimeout(() => { if (mentionBox) mentionBox.hidden = true; }, 200));
+}
+
+// cursor er age "@kichu" thakle member der list
+function updateMentionBox(input) {
+    if (!isGroupChat() || !groupInfo) { mentionBox.hidden = true; return; }
+    const before = input.value.slice(0, input.selectionStart);
+    const m = before.match(/(?:^|\s)@([^\s@]{0,30})$/);
+    if (!m) { mentionBox.hidden = true; return; }
+    const q = m[1].toLowerCase();
+    const list = groupInfo.members.filter(x => x.id !== currentUser.id && x.name.toLowerCase().includes(q)).slice(0, 8);
+    if (!list.length) { mentionBox.hidden = true; return; }
+    mentionBox.innerHTML = '';
+    list.forEach((mem, i) => {
+        const it = el('button', 'mention-item' + (i === 0 ? ' sel' : ''));
+        it.type = 'button';
+        it.appendChild(makeAvatar(mem.name, 'tiny', mem.avatar));
+        it.appendChild(el('span', '', mem.name));
+        it.addEventListener('mousedown', (e) => e.preventDefault());       // input er focus thakuk
+        it.addEventListener('click', () => {
+            const start = before.length - m[1].length - 1;                   // '@' er jayga
+            const after = input.value.slice(input.selectionStart);
+            input.value = input.value.slice(0, start) + '@' + mem.name + ' ' + after;
+            const pos = start + mem.name.length + 2;
+            input.setSelectionRange(pos, pos);
+            mentionPicks.set(mem.name, mem.id);
+            mentionBox.hidden = true;
+            input.focus();
+        });
+        mentionBox.appendChild(it);
+    });
+    const r = input.getBoundingClientRect();
+    mentionBox.hidden = false;
+    mentionBox.style.left = r.left + 'px';
+    mentionBox.style.width = Math.min(320, r.width) + 'px';
+    mentionBox.style.top = (r.top - mentionBox.offsetHeight - 8) + 'px';
+}
+
+// pathanor age: lekhay ekhono je "@Nam" gulo ache tader id
+function collectMentions(text) {
+    if (!isGroupChat()) return [];
+    const ids = new Set();
+    mentionPicks.forEach((id, name) => { if (text.includes('@' + name)) ids.add(id); });
+    // haate likhle-o (pura nam) dhori
+    if (groupInfo) groupInfo.members.forEach(mem => { if (mem.id !== currentUser.id && text.includes('@' + mem.name)) ids.add(mem.id); });
+    return [...ids];
+}
+
+// "@Nam" gulo rongin (je message e mention ache)
+function highlightMentions(span, msg) {
+    const names = (msg.mentions || []).map(id => id === currentUser.id ? (currentUser.name) : groupMemberName(id)).filter(n => n && n !== 'Member' && n !== 'You');
+    if (!names.length) return;
+    const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(node => {
+        let text = node.nodeValue;
+        const frag = document.createDocumentFragment();
+        let changed = false;
+        while (true) {
+            let best = -1, bestName = '';
+            names.forEach(n => { const i = text.indexOf('@' + n); if (i !== -1 && (best === -1 || i < best)) { best = i; bestName = n; } });
+            if (best === -1) break;
+            changed = true;
+            if (best > 0) frag.appendChild(document.createTextNode(text.slice(0, best)));
+            frag.appendChild(el('span', 'mention' + (bestName === currentUser.name ? ' me' : ''), '@' + bestName));
+            text = text.slice(best + bestName.length + 1);
+        }
+        if (!changed) return;
+        if (text) frag.appendChild(document.createTextNode(text));
+        node.parentNode.replaceChild(frag, node);
+    });
+}
+
+// =====================================================
+// POLL
+// =====================================================
+function openCreatePoll(groupId) {
+    const box = openModal('Create poll');
+    const form = el('div', 'group-form');
+    const q = el('input', 'picker-search');
+    q.type = 'text';
+    q.placeholder = 'Ask a question...';
+    q.maxLength = 300;
+    form.appendChild(q);
+    form.appendChild(el('div', 'count-note', 'Options'));
+    const opts = el('div', 'poll-opts');
+    form.appendChild(opts);
+    const addOpt = (val) => {
+        if (opts.children.length >= 10) return;
+        const row = el('div', 'poll-opt-row');
+        const inp = el('input', 'picker-search');
+        inp.type = 'text';
+        inp.placeholder = 'Option ' + (opts.children.length + 1);
+        inp.maxLength = 100;
+        inp.value = val || '';
+        row.appendChild(inp);
+        const x = el('button', 'icon-btn', '✕');
+        x.type = 'button';
+        x.title = 'Remove option';
+        x.addEventListener('click', () => { if (opts.children.length > 2) row.remove(); });
+        row.appendChild(x);
+        opts.appendChild(row);
+    };
+    addOpt(); addOpt();
+    const more = el('button', 'btn-sm ghost', '＋ Add option');
+    more.type = 'button';
+    more.addEventListener('click', () => addOpt());
+    form.appendChild(more);
+    const multiRow = el('label', 'fwd-row');
+    const multi = el('input');
+    multi.type = 'checkbox';
+    multiRow.appendChild(multi);
+    multiRow.appendChild(el('span', '', 'Allow multiple answers'));
+    form.appendChild(multiRow);
+
+    const actions = el('div', 'fwd-actions');
+    const cancel = el('button', 'btn-sm ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeModal);
+    const create = el('button', 'btn-sm', 'Send poll');
+    create.type = 'button';
+    create.addEventListener('click', async () => {
+        const options = [...opts.querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean);
+        if (!q.value.trim()) { alert('Please write a question.'); return; }
+        if (new Set(options).size < 2) { alert('Please add at least 2 different options.'); return; }
+        create.disabled = true;
+        try {
+            const r = await postJSON('/api/polls', { group_id: groupId, question: q.value.trim(), options, multiple: multi.checked });
+            if (!r.ok) { alert(r.message || 'Could not create poll.'); create.disabled = false; return; }
+            closeModal();
+            loadMessages(true);
+        } catch (err) { console.error(err); create.disabled = false; }
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(create);
+    form.appendChild(actions);
+    box.appendChild(form);
+    q.focus();
+}
+
+function renderPoll(msg) {
+    const p = msg.poll;
+    const card = el('div', 'poll-card');
+    card.appendChild(el('div', 'poll-q', '📊 ' + p.question));
+    card.appendChild(el('small', 'poll-sub', p.closed ? 'Poll closed' : (p.multiple ? 'Select one or more' : 'Select one')));
+    const max = Math.max(1, ...p.counts);
+    const total = p.counts.reduce((a, b) => a + b, 0);
+    p.options.forEach((opt, i) => {
+        const mine = p.mine.includes(i);
+        const row = el('button', 'poll-opt' + (mine ? ' mine' : '') + (p.counts[i] === max && total ? ' top' : ''));
+        row.type = 'button';
+        row.disabled = p.closed;
+        const pct = total ? Math.round(p.counts[i] / Math.max(1, p.voters) * 100) : 0;
+        const bar = el('i', 'poll-bar');
+        bar.style.width = (total ? Math.round(p.counts[i] / Math.max(1, p.voters) * 100) : 0) + '%';
+        row.appendChild(bar);
+        row.appendChild(el('span', 'poll-check', mine ? '✔' : ''));
+        row.appendChild(el('span', 'poll-text', opt));
+        row.appendChild(el('span', 'poll-count', p.counts[i] + (total ? ' · ' + pct + '%' : '')));
+        row.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let next;
+            if (p.multiple) next = mine ? p.mine.filter(x => x !== i) : p.mine.concat(i);
+            else next = mine ? [] : [i];
+            votePoll(p.id, next);
+        });
+        card.appendChild(row);
+    });
+    const foot = el('div', 'poll-foot');
+    foot.appendChild(el('small', '', p.voters + (p.voters === 1 ? ' vote' : ' votes')));
+    const canClose = !p.closed && (p.created_by === currentUser.id || (groupInfo && groupInfo.group.my_role === 'admin'));
+    if (canClose) {
+        const c = el('button', 'poll-close', 'Close poll');
+        c.type = 'button';
+        c.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm('Close this poll? No one will be able to vote after this.')) return;
+            const r = await postJSON('/api/polls/' + p.id + '/close', {});
+            if (!r.ok) alert(r.message || 'Could not close poll.'); else loadMessages(false);
+        });
+        foot.appendChild(c);
+    }
+    card.appendChild(foot);
+    return card;
+}
+
+async function votePoll(pollId, options) {
+    try {
+        const r = await postJSON('/api/polls/' + pollId + '/vote', { options });
+        if (!r.ok) { alert(r.message || 'Could not vote.'); return; }
+        loadMessages(false);
+    } catch (err) { console.error(err); }
+}
+
+// =====================================================
+// SAVED MESSAGES
+// =====================================================
+async function toggleSave(msg) {
+    try {
+        const r = await postJSON('/api/messages/save', { message_id: msg.id, save: !msg.saved });
+        if (!r.ok) { alert(r.message || 'Could not save.'); return; }
+        showToast('Saved messages', msg.saved ? 'Removed from saved' : 'Saved ⭐ (find it with ⭐ in Chats)');
+        loadMessages(false);
+    } catch (err) { console.error(err); }
+}
+
+async function openSavedMessages() {
+    const box = openModal('⭐ Saved messages');
+    const body = el('div', 'saved-list');
+    body.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(body);
+    let data;
+    try { data = await request('/api/messages/saved'); } catch (e) { data = {}; }
+    if (!$('modalOverlay')) return;
+    body.innerHTML = '';
+    const list = data.saved || [];
+    if (!list.length) { body.appendChild(el('p', 'muted-note', 'No saved messages yet. Open a message menu (⋮) and tap "⭐ Save".')); return; }
+    list.forEach(m => {
+        const row = el('button', 'saved-item');
+        row.type = 'button';
+        const where = m.group_id ? '👥 ' + (m.group_name || 'Group') : (friends.find(f => f.id === m.peer_id) || { name: 'Chat' }).name;
+        const top = el('div', 'saved-top');
+        top.appendChild(makeAvatar(m.sender_name, 'tiny', m.sender_avatar));
+        top.appendChild(el('strong', '', m.sender_id === currentUser.id ? 'You' : m.sender_name));
+        top.appendChild(el('small', '', '· ' + where + ' · ' + dayLabel(new Date(m.created_at))));
+        row.appendChild(top);
+        const text = el('div', 'saved-text');
+        appendRich(text, shortText(m.message || attachLabel(m.attachment_type, m.attachment_name), 160));
+        row.appendChild(text);
+        row.addEventListener('click', async () => {
+            closeModal();
+            if (m.group_id) {
+                const g = groups.find(x => x.id === m.group_id);
+                if (!g) return;
+                switchTab('chats');
+                openGroup(g);
+            } else {
+                const f = friends.find(x => x.id === m.peer_id);
+                if (!f) { alert('This chat is not available anymore.'); return; }
+                switchTab('chats');
+                openChat(f);
+            }
+            await new Promise(r => setTimeout(r, 600));
+            jumpToMessage(m.id);
+        });
+        body.appendChild(row);
+    });
 }
 
 // =====================================================
@@ -1571,7 +2094,9 @@ function applyComposerPermission() {
     const g = groupInfo && groupInfo.group;
     const locked = !!(isGroupChat() && g && g.send_permission === 'admins' && g.my_role !== 'admin');
     input.disabled = locked;
-    input.placeholder = locked ? 'Only admins can send messages' : 'Type a message...';
+    input.placeholder = locked ? 'Only admins can send messages' : (isGroupChat() ? 'Type a message... (@ to mention)' : 'Type a message...');
+    const pb = document.querySelector('.poll-btn');
+    if (pb) pb.hidden = !isGroupChat();
     document.querySelector('.composer').classList.toggle('locked', locked);
 }
 
@@ -1595,12 +2120,12 @@ function groupTypingNames(groupId) {
     return names.length === 1 ? names[0] + ' is typing...' : names.length + ' people are typing...';
 }
 
-function notifyGroup(g) {
+function notifyGroup(g, mentioned) {
     const who = (g.last_sender_name || '').split(' ')[0];
     const preview = (who ? who + ': ' : '') + (g.last_message || '');
     const short = preview.length > 70 ? preview.slice(0, 70) + '…' : preview;
     const open = () => { window.focus(); openGroup(g); };
-    showToast('👥 ' + g.name, short, open);
+    showToast((mentioned ? '@ You were mentioned · ' : '👥 ') + g.name, short, open);
     beep();
     try {
         if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
@@ -1616,6 +2141,7 @@ function groupMenuItems() {
     return [
         { label: 'ℹ️ Group info', action: () => openGroupInfo(activeChat.id) },
         { label: g && g.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', action: () => setGroupMute(activeChat.id, !(g && g.muted)) },
+        { label: '📊 Create poll', action: () => openCreatePoll(activeChat.id) },
         { label: '🚪 Leave group', action: () => leaveGroup(activeChat.id), danger: true }
     ];
 }
@@ -2603,6 +3129,17 @@ function setupFileSharing() {
     attach.addEventListener('click', () => picker.click());
     composer.insertBefore(attach, input);
 
+    // 📊 poll (shudhu group e dekhabe)
+    const pollBtn = el('button', 'tool-btn poll-btn', '📊');
+    pollBtn.type = 'button';
+    pollBtn.title = 'Create a poll';
+    pollBtn.setAttribute('aria-label', 'Create poll');
+    pollBtn.hidden = true;
+    pollBtn.addEventListener('click', () => { if (isGroupChat()) openCreatePoll(activeChat.id); });
+    composer.insertBefore(pollBtn, input);
+
+    setupMentions(input);
+
     // 🎤 voice
     const mic = el('button', 'tool-btn mic-btn', '🎤');
     mic.type = 'button';
@@ -2648,7 +3185,8 @@ function convoUrl(params) {
 
 // protita message er "chhap": notun, seen, edit, unsend, pin, reaction - je kono bodlale key bodlabe
 function messagesKey(msgs) {
-    return msgs.map(m => [m.id, m.is_read, m.deleted_at ? 1 : 0, m.edited_at || '', m.pinned_at || '',
+    return msgs.map(m => [m.id, m.is_read, m.deleted_at ? 1 : 0, m.edited_at || '', m.pinned_at || '', m.saved ? 1 : 0,
+        m.poll ? m.poll.counts.join(',') + (m.poll.closed ? 'c' : '') + m.poll.mine.join('') : '',
         (m.reactions || []).map(r => r.user_id + r.reaction).join(',')].join('/')).join('|');
 }
 
@@ -2772,16 +3310,26 @@ function renderMessages(mode) {
             if (msg.message) {
                 const text = el('span', 'msg-text');
                 text.dataset.raw = msg.message;                 // search er jonno asol lekha
-                appendRich(text, msg.message);
-                if (!msg.attachment_url && isEmojiOnly(msg.message)) bubble.classList.add('emoji-only');
-                bubble.appendChild(text);
+                if (msg.poll) {
+                    bubble.classList.add('has-poll');
+                    bubble.appendChild(renderPoll(msg));
+                } else {
+                    appendMessageText(text, msg.message);
+                    if (msg.mentions && msg.mentions.length) highlightMentions(text, msg);
+                    if (!msg.attachment_url && isEmojiOnly(msg.message)) bubble.classList.add('emoji-only');
+                    bubble.appendChild(text);
+                }
+                if ((msg.mentions || []).includes(currentUser.id)) bubble.classList.add('mentions-me');
             }
         }
         const edited = msg.edited_at && !msg.deleted_at ? 'edited · ' : '';
-        const pinMark = msg.pinned_at && !msg.deleted_at ? '📌 ' : '';
+        const pinMark = (msg.saved && !msg.deleted_at ? '⭐ ' : '') + (msg.pinned_at && !msg.deleted_at ? '📌 ' : '');
         const time = el('span', 'time', isNaN(when) ? '' : pinMark + edited + fmtTime(when));
         if (isMe && !inGroup) time.appendChild(el('i', 'tick' + (msg.is_read ? ' seen' : ''), msg.is_read ? ' ✓✓' : ' ✓'));
         bubble.appendChild(time);
+        // lekhay link thakle preview card (time er upore)
+        const link = !msg.deleted_at && !msg.attachment_url && firstLink(msg.message);
+        if (link) { bubble.classList.add('has-link'); attachLinkPreview(bubble, link, msg.id); }
         if (!msg.deleted_at && msg.reactions && msg.reactions.length) {
             bubble.classList.add('has-react');
             bubble.appendChild(reactionPills(msg));
@@ -2817,11 +3365,14 @@ async function sendMessage() {
         }
 
         const body = Object.assign({ message }, chatTarget());
+        const mentionIds = collectMentions(message);
+        if (mentionIds.length) body.mention_ids = mentionIds;
         if (composeMode && composeMode.type === 'reply') body.reply_to_id = composeMode.msg.id;
 
         const result = await postJSON('/api/messages/send', body);
         if (!result.ok) { alert(result.message || 'Message could not be sent.'); return; }
         input.value = '';
+        mentionPicks.clear();
         cancelCompose();
         sendTyping(false);
         loadMessages(true);
@@ -2882,9 +3433,12 @@ function connectSocket() {
         loadGroups().then(() => {
             if (d.sender_id === currentUser.id || d.system || (open && !document.hidden)) return;
             const g = groups.find(x => x.id === d.group_id);
-            if (g && !g.muted) notifyGroup(g);
+            const mentionedMe = (d.mentions || []).includes(currentUser.id);
+            if (g && (mentionedMe || !g.muted)) notifyGroup(g, mentionedMe);
         });
     });
+
+    socket.on('chat-settings:changed', loadChatSettings);
 
     // group er nam / member / setting bodlale
     socket.on('groups:changed', (d) => {
@@ -2990,7 +3544,7 @@ async function loadUnread() {
             next[u.sender_id] = { count: u.count, last_id: u.last_id, last_message: u.last_message };
 
             const prev = lastNotified[u.sender_id] || 0;
-            if (unreadReady && u.last_id > prev) notifyNew(u);
+            if (unreadReady && u.last_id > prev && !isChatMuted('u', u.sender_id)) notifyNew(u);
             lastNotified[u.sender_id] = Math.max(prev, u.last_id);
         });
 
@@ -3014,8 +3568,10 @@ function markRead(friendId) {
 }
 
 function updateBadges() {
-    const total = Object.values(unread).reduce((n, u) => n + u.count, 0) +
-        groups.reduce((n, g) => n + (isActive({ isGroup: true, id: g.id }) || g.muted ? 0 : (g.unread || 0)), 0);
+    // mute / archive kora chat er unread mot songkhyay dhori na
+    const skip = (key) => { const x = chatSettings[key] || {}; return x.archived || x.muted; };
+    const total = Object.entries(unread).reduce((n, [id, u]) => n + (skip('u' + id) ? 0 : u.count), 0) +
+        groups.reduce((n, g) => n + (isActive({ isGroup: true, id: g.id }) || g.muted || skip('g' + g.id) ? 0 : (g.unread || 0)), 0);
     const badge = $('chatBadge');
     badge.textContent = total > 99 ? '99+' : total;
     badge.hidden = total === 0;

@@ -7,23 +7,24 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Najiur11/Customer-Support-System.git"
+    "url": "git+https://github.com/Najiur11/talkfav_chat.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/Najiur11/Customer-Support-System/issues"
+    "url": "https://github.com/Najiur11/talkfav_chat/issues"
   },
-  "homepage": "https://github.com/Najiur11/Customer-Support-System#readme",
-  "description": "",
+  "homepage": "https://github.com/Najiur11/talkfav_chat#readme",
+  "description": "TalkFav - realtime chat, group chat, audio/video calls and file sharing (Node.js, Socket.IO, PostgreSQL, WebRTC)",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "pg": "^8.23.1",
-    "socket.io": "^4.8.4"
+    "socket.io": "^4.8.4",
+    "web-push": "^4.0.0"
   },
   "engines": {
     "node": ">=18"
