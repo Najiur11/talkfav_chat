@@ -1,0 +1,346 @@
+/* =====================================================
+   TalkFav — Login + Register (eki design, glassy green)
+   Rong gulo landing.css er sathe mil. Logo bodlale --emerald, --emerald-2, --teal bodlao.
+   ===================================================== */
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+
+:root {
+  --emerald: #0E8F5B;
+  --emerald-2: #12B07A;
+  --teal: #0D9C94;
+  --grad: linear-gradient(120deg, var(--emerald) 0%, var(--emerald-2) 45%, var(--teal) 100%);
+
+  --forest: #0B3D2E;
+  --mint: #D7F5E7;
+  --bg-1: #E6F8EF;
+  --bg-2: #F5FBF8;
+  --text: #10261E;
+  --text-soft: #4A6359;
+  --line: #D6E8DE;
+  --danger: #DC2626;
+
+  --card: rgba(255, 255, 255, .66);
+  --card-line: rgba(14, 143, 91, .16);
+  --field: rgba(255, 255, 255, .85);
+  --field-line: #D6E8DE;
+  --glow-a: #A7F3D0;
+  --glow-b: #99F6E4;
+  --leaf: #0E8F5B;
+  --leaf-op: .11;
+  --shadow: inset 0 1px 0 rgba(255, 255, 255, .95), 0 40px 80px -40px rgba(11, 61, 46, .35);
+
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "DM Sans", "Segoe UI", system-ui, sans-serif;
+
+  /* ===== LOGO ER SIZE: ei duita songkha bodlalei baame logo boro / choto hobe ===== */
+  --logo-size: 84px;        /* logo er chihno (chat bubble) */
+  --logo-text: 54px;        /* "TalkFav" lekha */
+  /* ===== boro shironam (shubhechha + Welcome Back) er size ===== */
+  --title-size: clamp(38px, 4.6vw, 64px);
+}
+[data-theme="dark"] {
+  --forest: #EAFBF3;
+  --mint: rgba(255, 255, 255, .1);
+  --bg-1: #083A2B;
+  --bg-2: #04261C;
+  --text: #E4F5EC;
+  --text-soft: #A8CFC0;
+  --line: rgba(255, 255, 255, .14);
+  --danger: #F87171;
+  --card: rgba(255, 255, 255, .07);
+  --card-line: rgba(255, 255, 255, .16);
+  --field: rgba(0, 0, 0, .18);
+  --field-line: rgba(255, 255, 255, .14);
+  --glow-a: #12B07A;
+  --glow-b: #0D9C94;
+  --leaf: #6EE7B7;
+  --leaf-op: .12;
+  --shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 40px 80px -40px rgba(0, 0, 0, .7);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { min-height: 100%; }
+body {
+  margin: 0; font-family: var(--body); font-size: 16px; line-height: 1.55; color: var(--text);
+  background: radial-gradient(120% 90% at 0% 0%, var(--bg-1) 0%, var(--bg-2) 60%);
+  background-attachment: fixed; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+a { color: var(--emerald); font-weight: 600; text-decoration: none; }
+a:hover { text-decoration: underline; }
+[data-theme="dark"] a { color: #6EE7B7; }
+:focus-visible { outline: 3px solid var(--emerald-2); outline-offset: 3px; border-radius: 10px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- pichoner alo + pata (landing er moto) ---------- */
+.bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.glow { position: absolute; border-radius: 50%; filter: blur(80px); opacity: .55; will-change: transform; }
+.glow-a { width: 520px; height: 520px; left: -160px; top: -140px; background: var(--glow-a); animation: drift-a 26s ease-in-out infinite alternate; }
+.glow-b { width: 460px; height: 460px; right: -140px; bottom: -120px; background: var(--glow-b); opacity: .45; animation: drift-b 32s ease-in-out infinite alternate; }
+@keyframes drift-a { to { transform: translate(120px, 90px) scale(1.1); } }
+@keyframes drift-b { to { transform: translate(-100px, -60px) scale(.92); } }
+.leaf { position: absolute; fill: none; stroke: var(--leaf); stroke-width: 1.4; opacity: var(--leaf-op); transform-origin: 50% 100%; animation: sway 10s ease-in-out infinite alternate; }
+.leaf-1 { width: 180px; height: 290px; left: -40px; bottom: 6%; transform: rotate(18deg); }
+.leaf-2 { width: 130px; height: 210px; left: 38%; top: -30px; transform: rotate(-160deg); opacity: calc(var(--leaf-op) * .7); animation-duration: 13s; }
+.leaf-3 { width: 220px; height: 340px; right: -60px; top: 8%; transform: rotate(-22deg); animation-duration: 12s; }
+.leaf-4 { width: 140px; height: 220px; right: 22%; bottom: -70px; transform: rotate(10deg); opacity: calc(var(--leaf-op) * .7); animation-duration: 14s; }
+@keyframes sway { from { rotate: -3deg; } to { rotate: 3deg; } }
+
+/* ---------- upore: home e ferot + theme button ---------- */
+.topbar { position: fixed; inset: 16px 20px auto; z-index: 10; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.topbar > * { pointer-events: auto; }
+.back-link {
+  display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; border-radius: 999px; font-size: 14px;
+  color: var(--forest); background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+[data-theme="dark"] .back-link { color: var(--forest); }
+.back-link:hover { text-decoration: none; border-color: var(--emerald-2); }
+.back-link svg { width: 18px; height: 18px; }
+.theme-btn {
+  width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; color: var(--forest);
+  background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.theme-btn svg { width: 20px; height: 20px; }
+
+/* ---------- page layout: baame brand, daane card ---------- */
+.auth-page {
+  min-height: 100vh; width: min(1160px, 90vw); margin: 0 auto; padding: 84px 0 40px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(380px, 460px); gap: clamp(32px, 5vw, 80px);
+  align-items: center; justify-content: center;
+}
+/* register er card ektu chowra (Country + Phone pashapashi) */
+.auth-page:has(.auth-card.wide) { grid-template-columns: minmax(0, 1fr) minmax(400px, 540px); }
+.brand-panel { max-width: 560px; }
+.brand { display: inline-flex; align-items: center; gap: 16px; font: 800 var(--logo-text)/1 var(--display); letter-spacing: -0.03em; color: var(--forest); text-decoration: none; }
+.brand:hover { text-decoration: none; }
+/* LOGO: notun logo ashle ei svg bodlao (logo/talkfav-logo.svg) */
+.brand svg { width: var(--logo-size); height: var(--logo-size); filter: drop-shadow(0 6px 18px rgba(18, 176, 122, .5)); }
+/* shubhechha: Welcome Back er moto eki font, eki size */
+.brand-panel .greet { display: block; margin: 14px 0 0; text-align: left; font: 800 var(--title-size)/1.02 var(--display); letter-spacing: -0.04em; color: var(--forest); }
+.brand-panel h1 { margin: 2px 0 0; font: 800 var(--title-size)/1.02 var(--display); letter-spacing: -0.04em; color: var(--forest); }
+.gradient-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+[data-theme="dark"] .gradient-text { background: linear-gradient(120deg, #6EE7B7, #5EEAD4); -webkit-background-clip: text; background-clip: text; }
+.brand-sub { margin: 20px 0 0; color: var(--text-soft); font-size: 18px; max-width: 30em; }
+.brand-sub strong { color: var(--forest); }
+.feature-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 32px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 999px; font-size: 14.5px; font-weight: 500;
+  color: var(--forest); background: var(--card); border: 1px solid var(--card-line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.chip svg { width: 18px; height: 18px; color: var(--emerald); }
+[data-theme="dark"] .chip svg { color: #6EE7B7; }
+
+@media (max-width: 920px) {
+  .auth-page { grid-template-columns: 1fr; padding-top: 84px; gap: 26px; max-width: 520px; }
+  .brand-panel { text-align: center; margin: 0 auto; }
+  .brand-panel h1 { font-size: clamp(30px, 8vw, 40px); margin-top: 2px; }
+  .brand-sub { font-size: 16px; margin-inline: auto; }
+  .feature-chips { display: none; }
+  .brand { font-size: 36px; }
+  .brand svg { width: 56px; height: 56px; }
+  .brand-panel .greet { text-align: center; margin-top: 18px; font-size: clamp(30px, 8vw, 40px); }
+  .auth-card { margin-top: 46px; }          /* uporer gol avatar jate lekhar upore na pore */
+}
+@media (max-width: 480px) { .back-link span { display: none; } .back-link { width: 42px; padding: 0; justify-content: center; } }
+
+/* =====================================================
+   CARD: kach + kinaray ghurnto alo
+   ===================================================== */
+.auth-card {
+  position: relative; border-radius: 30px; padding: 30px clamp(22px, 3.5vw, 36px) 26px;
+  background: var(--card); border: 1px solid var(--card-line); box-shadow: var(--shadow);
+  backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+/* ghurnto alor rekha (kinara borabor dhire ghore) */
+.auth-card::before {
+  content: ""; position: absolute; inset: -1.5px; border-radius: inherit; padding: 1.5px; pointer-events: none;
+  background: conic-gradient(from var(--spin), transparent 0deg, transparent 230deg, rgba(110, 231, 183, .9) 290deg, #12B07A 320deg, rgba(13, 156, 148, .9) 340deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude;
+  animation: spin-border 9s linear infinite;
+}
+/* card er chaarpashe noram alo */
+.auth-card::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 60px -10px rgba(18, 176, 122, .35);
+}
+[data-theme="light"] .auth-card::before { opacity: .75; }
+[data-theme="light"] .auth-card::after { box-shadow: 0 0 60px -14px rgba(18, 176, 122, .28); }
+@keyframes spin-border { to { --spin: 360deg; } }
+
+/* uporer gol avatar (ager moto) */
+.avatar-ring {
+  width: 84px; height: 84px; margin: -76px auto 14px; border-radius: 50%; padding: 3px; background: var(--grad);
+  box-shadow: 0 12px 30px -10px rgba(18, 176, 122, .7);
+}
+.avatar-in {
+  width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; overflow: hidden;
+  background: #fff; color: var(--emerald); font: 800 30px/1 var(--display);
+}
+[data-theme="dark"] .avatar-in { background: #0A3A2B; color: #6EE7B7; }
+.avatar-in svg { width: 36px; height: 36px; }
+.avatar-in img { width: 100%; height: 100%; object-fit: cover; }
+
+.auth-card h2 { margin: 0; text-align: center; font: 800 28px/1.15 var(--display); letter-spacing: -0.02em; color: var(--forest); }
+.greet { display: block; text-align: center; font-size: 14px; font-weight: 600; color: var(--emerald); margin-bottom: 4px; }
+[data-theme="dark"] .greet { color: #6EE7B7; }
+.form-sub { margin: 6px 0 20px; text-align: center; color: var(--text-soft); font-size: 15px; }
+.not-you { display: block; text-align: center; margin: -14px 0 18px; font-size: 13px; }
+.not-you button { border: none; background: none; padding: 0; color: var(--emerald); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+[data-theme="dark"] .not-you button { color: #6EE7B7; }
+
+/* sadharon bhul / safolyo barta */
+.form-alert { margin: 0 0 16px; padding: 11px 14px; border-radius: 14px; font-size: 14px; display: flex; gap: 8px; align-items: flex-start; }
+.form-alert.error { background: rgba(220, 38, 38, .1); color: var(--danger); border: 1px solid rgba(220, 38, 38, .25); }
+.form-alert.ok { background: rgba(18, 176, 122, .12); color: var(--emerald); border: 1px solid rgba(18, 176, 122, .3); }
+[data-theme="dark"] .form-alert.ok { color: #6EE7B7; }
+
+/* =====================================================
+   INPUT: bhasoman label
+   ===================================================== */
+.input-group { margin-bottom: 12px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 520px) { .field-row { grid-template-columns: 1fr; gap: 0; } }
+.field { position: relative; }
+.field input {
+  width: 100%; height: 56px; padding: 21px 46px 6px 50px; border-radius: 16px; font: 500 16px/1 var(--body); color: var(--text);
+  background: var(--field); border: 1.5px solid var(--field-line); outline: none; transition: border-color .2s, box-shadow .2s, background .2s;
+}
+.field input::placeholder { color: transparent; }
+.field-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 21px; height: 21px; color: var(--text-soft); pointer-events: none; transition: color .2s; }
+.float-label {
+  position: absolute; left: 50px; top: 50%; transform: translateY(-50%); font-size: 15.5px; color: var(--text-soft);
+  pointer-events: none; transition: top .18s ease, font-size .18s ease, color .18s ease; white-space: nowrap;
+}
+.field input:focus { border-color: var(--emerald-2); box-shadow: 0 0 0 4px rgba(18, 176, 122, .16), 0 0 22px -4px rgba(18, 176, 122, .45); }
+.field input:focus ~ .field-icon, .field:focus-within .field-icon { color: var(--emerald-2); }
+.field input:focus + .float-label,
+.field input:not(:placeholder-shown) + .float-label { top: 17px; font-size: 12px; font-weight: 600; color: var(--emerald); }
+[data-theme="dark"] .field input:focus + .float-label,
+[data-theme="dark"] .field input:not(:placeholder-shown) + .float-label { color: #6EE7B7; }
+/* browser er autofill e label upore thake */
+.field input:-webkit-autofill + .float-label { top: 17px; font-size: 12px; }
+.field input:-webkit-autofill { -webkit-text-fill-color: var(--text); box-shadow: 0 0 0 1000px var(--field) inset; transition: background-color 9999s; }
+
+.field.invalid input { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(220, 38, 38, .12); }
+.field.invalid .float-label, .field.invalid .field-icon { color: var(--danger) !important; }
+.field-error { display: block; margin: 6px 4px 0; font-size: 13px; color: var(--danger); min-height: 0; }
+
+/* chokh (password dekha / lukano) */
+.eye-btn {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 12px;
+  display: grid; place-items: center; border: none; background: none; color: var(--text-soft); cursor: pointer;
+}
+.eye-btn:hover { color: var(--emerald-2); background: var(--mint); }
+.eye-btn svg { width: 21px; height: 21px; }
+.caps-hint { display: flex; align-items: center; gap: 6px; margin: 6px 4px 0; font-size: 13px; font-weight: 600; color: #B45309; }
+[data-theme="dark"] .caps-hint { color: #FBBF24; }
+.caps-hint svg { width: 15px; height: 15px; }
+
+/* password er shokti (register) */
+.strength { display: flex; align-items: center; gap: 10px; margin: 8px 4px 0; font-size: 12.5px; color: var(--text-soft); }
+.strength .bars { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.strength .bars i { height: 5px; border-radius: 3px; background: var(--line); transition: background .3s; }
+.strength[data-score="1"] .bars i:nth-child(-n+1) { background: #EF4444; }
+.strength[data-score="2"] .bars i:nth-child(-n+2) { background: #F59E0B; }
+.strength[data-score="3"] .bars i:nth-child(-n+3) { background: #22C55E; }
+.strength[data-score="4"] .bars i { background: var(--emerald-2); }
+.strength b { min-width: 52px; text-align: right; font-weight: 600; }
+
+/* remember / forgot / terms */
+.options { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 4px 2px 20px; font-size: 14px; }
+.check { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; color: var(--text-soft); user-select: none; }
+.check input { appearance: none; -webkit-appearance: none; width: 20px; height: 20px; margin: 0; border-radius: 6px; border: 1.5px solid var(--field-line); background: var(--field); display: grid; place-items: center; cursor: pointer; transition: background .2s, border-color .2s; }
+.check input::after { content: ""; width: 10px; height: 6px; border: 2.4px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px) scale(0); transition: transform .15s; }
+.check input:checked { background: var(--grad); border-color: transparent; }
+.check input:checked::after { transform: rotate(-45deg) translate(1px, -1px) scale(1); }
+.terms { align-items: flex-start; margin: 4px 2px 16px; font-size: 14px; line-height: 1.45; }
+.terms input { flex: none; margin-top: 1px; }
+
+/* =====================================================
+   BUTTON: loading -> ✓ tik
+   ===================================================== */
+.btn-submit {
+  position: relative; width: 100%; height: 56px; border: none; border-radius: 16px; cursor: pointer; overflow: hidden; isolation: isolate;
+  display: flex; align-items: center; justify-content: center; gap: 10px; font: 700 17px/1 var(--body); color: #fff; background: var(--grad);
+  box-shadow: 0 14px 30px -12px rgba(18, 176, 122, .8); transition: transform .15s, box-shadow .2s, width .35s ease, border-radius .35s ease;
+}
+.btn-submit:hover { box-shadow: 0 18px 36px -12px rgba(18, 176, 122, .95); }
+.btn-submit:active { transform: scale(.985); }
+.btn-submit svg { width: 20px; height: 20px; }
+.btn-submit::after { content: ""; position: absolute; inset: 0; z-index: -1; transform: translateX(-120%) skewX(-20deg); background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent); }
+.btn-submit:hover::after { transition: transform .7s ease; transform: translateX(120%) skewX(-20deg); }
+.btn-submit .label { display: contents; }
+.btn-submit .spinner, .btn-submit .done { display: none; }
+.btn-submit.loading { pointer-events: none; }
+.btn-submit.loading .label, .btn-submit.success .label { display: none; }
+.btn-submit.loading .spinner { display: block; width: 24px; height: 24px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .35); border-top-color: #fff; animation: rot .8s linear infinite; }
+.btn-submit.success { pointer-events: none; width: 56px; margin-inline: auto; border-radius: 50%; }
+.btn-submit.success .done { display: block; width: 28px; height: 28px; }
+.btn-submit.success .done path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: draw .45s .15s ease forwards; }
+@keyframes rot { to { transform: rotate(1turn); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* bhul hole card ta dole */
+.shake { animation: shake .5s cubic-bezier(.36, .07, .19, .97); }
+@keyframes shake { 10%, 90% { transform: translateX(-2px); } 20%, 80% { transform: translateX(4px); } 30%, 50%, 70% { transform: translateX(-8px); } 40%, 60% { transform: translateX(8px); } }
+
+/* ---------- or + social ---------- */
+.divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--text-soft); font-size: 13px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.social-row { display: flex; justify-content: center; gap: 12px; }
+.social-btn {
+  width: 74px; height: 54px; border-radius: 16px; display: grid; place-items: center; cursor: pointer;
+  background: var(--field); border: 1.5px solid var(--field-line); transition: border-color .2s, transform .15s, box-shadow .2s;
+}
+.social-btn:hover { border-color: var(--emerald-2); transform: translateY(-2px); box-shadow: 0 10px 20px -12px rgba(18, 176, 122, .6); }
+.social-btn.loading { opacity: .6; pointer-events: none; }
+.signup-text { margin: 18px 0 0; text-align: center; font-size: 14.5px; color: var(--text-soft); }
+.signup-text a { margin-left: 6px; }
+
+/* register safolyo */
+.success-panel { text-align: center; padding: 10px 0 4px; }
+.auth-card.done .avatar-ring { display: none; }
+.success-panel .big-check { width: 76px; height: 76px; margin: 6px auto 16px; border-radius: 50%; background: var(--grad); display: grid; place-items: center; box-shadow: 0 14px 30px -10px rgba(18, 176, 122, .8); }
+.success-panel .big-check svg { width: 38px; height: 38px; }
+.success-panel .big-check path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: draw .5s .2s ease forwards; }
+.success-panel p { color: var(--text-soft); margin: 10px 0 22px; }
+.success-panel .btn-submit { text-decoration: none; }
+
+/* durbol phone e halka blur */
+@media (max-width: 640px) {
+  .auth-card, .chip, .back-link, .theme-btn { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .glow { filter: blur(60px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow, .leaf, .auth-card::before { animation: none; }
+  .shake { animation: none; }
+  .btn-submit, .field input, .float-label { transition: none; }
+  .btn-submit:hover::after { transition: none; }
+}
+
+/* kom uchu screen (laptop): card aro chapa, jate pura form screen e dhore */
+@media (max-height: 820px) and (min-width: 921px) {
+  .auth-page { padding: 64px 0 20px; }
+  .avatar-ring { width: 72px; height: 72px; margin-top: -64px; margin-bottom: 10px; }
+  .auth-card h2 { font-size: 25px; }
+  .form-sub { margin-bottom: 14px; }
+  .field input { height: 52px; padding-top: 19px; }
+  .field input:focus + .float-label, .field input:not(:placeholder-shown) + .float-label { top: 15px; }
+  .input-group { margin-bottom: 9px; }
+  .btn-submit { height: 50px; }
+  .divider { margin: 14px 0 10px; }
+  .signup-text { margin-top: 12px; }
+  .social-btn { height: 48px; }
+  .brand-panel h1, .brand-panel .greet { font-size: clamp(34px, 4vw, 54px); }
+  .brand svg { width: calc(var(--logo-size) * .8); height: calc(var(--logo-size) * .8); }
+  .brand { font-size: calc(var(--logo-text) * .8); }
+}
+
+/* khub kom uchu screen: chhoto lekha (form-sub) lukiye aro jayga */
+@media (max-height: 740px) and (min-width: 921px) {
+  .auth-card.wide .form-sub { display: none; }
+  .auth-card.wide h2 { margin-bottom: 12px; }
+  .auth-card.wide .field input { height: 50px; }
+}

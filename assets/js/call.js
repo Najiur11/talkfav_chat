@@ -651,7 +651,7 @@ function callWhenText(ts) {
 function renderCallHistory(body) {
     if (missedCalls) markCallsSeen();
     if (!callHistory.length) {
-        body.appendChild(emptyNote('No calls yet. Open a chat and tap 📞 or 🎥 to call a friend.'));
+        body.appendChild(emptyNote('No calls yet. Open a chat and tap the call button to call a friend.'));
         return;
     }
     callHistory.forEach(c => {
@@ -667,20 +667,19 @@ function renderCallHistory(body) {
         if (c.status === 'answered') label = (c.outgoing ? '↗ Outgoing' : '↙ Incoming') + ' · ' + callDurationText(c);
         else if (c.status === 'rejected') label = c.outgoing ? '↗ Declined' : '↙ You declined';
         else label = c.outgoing ? '↗ No answer' : '↙ Missed call';
-        info.appendChild(el('small', missed ? 'missed-text' : '', (c.video ? '📹 ' : '📞 ') + label));
+        const line = el('small', 'call-line' + (missed ? ' missed-text' : ''));
+        line.appendChild(typeof icon === 'function' ? icon(c.video ? 'video' : 'call') : document.createTextNode(''));
+        line.appendChild(document.createTextNode(label));
+        info.appendChild(line);
         info.appendChild(el('small', 'call-when', callWhenText(c.started_at)));
         item.appendChild(info);
 
         // abar call (shudhu friend hole)
         const friend = friends.find(f => f.id === c.peer_id);
         if (friend) {
-            const a = el('button', 'icon-btn call-back', '📞');
-            a.type = 'button';
-            a.title = 'Audio call';
+            const a = iconBtn('icon-btn call-back', 'call', 'Audio call');
             a.addEventListener('click', () => { if (typeof openChat === 'function') openChat(friend); startCall(friend, false); });
-            const v = el('button', 'icon-btn call-back', '🎥');
-            v.type = 'button';
-            v.title = 'Video call';
+            const v = iconBtn('icon-btn call-back', 'video', 'Video call');
             v.addEventListener('click', () => { if (typeof openChat === 'function') openChat(friend); startCall(friend, true); });
             item.appendChild(a);
             item.appendChild(v);

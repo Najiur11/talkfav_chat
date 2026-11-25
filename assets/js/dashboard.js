@@ -1,3 +1,109 @@
+// Remember me: tik na diye login korle, browser bondho kore abar khulle logout
+(function () {
+    try {
+        if (localStorage.getItem('tf_temp') === '1' && !/(^|;\s*)tf_alive=1/.test(document.cookie)) {
+            localStorage.removeItem('user');
+            localStorage.removeItem('tf_temp');
+        }
+    } catch (e) {}
+})();
+
+// =====================================================
+// ICON: shob jaygay eki dhoroner line-icon (WhatsApp / Telegram er moto)
+// =====================================================
+const ICON_PATHS = {
+    smile: '<circle cx="12" cy="12" r="9.2"/><path d="M8.3 14.2a4.6 4.6 0 0 0 7.4 0"/><circle cx="9" cy="9.8" r=".9" fill="currentColor"/><circle cx="15" cy="9.8" r=".9" fill="currentColor"/>',
+    paperclip: '<path d="m20.2 11.6-8.4 8.4a5.2 5.2 0 0 1-7.4-7.4l8.4-8.4a3.5 3.5 0 0 1 4.9 4.9l-8.4 8.4a1.7 1.7 0 0 1-2.5-2.5l7.8-7.8"/>',
+    poll: '<path d="M4 20h16"/><rect x="5.5" y="11" width="3" height="6" rx="1"/><rect x="10.5" y="6" width="3" height="11" rx="1"/><rect x="15.5" y="9" width="3" height="8" rx="1"/>',
+    mic: '<rect x="9" y="3" width="6" height="11.5" rx="3"/><path d="M18.5 11a6.5 6.5 0 0 1-13 0M12 17.5V21M8.5 21h7"/>',
+    send: '<path d="M3.4 20.4 21 12 3.4 3.6l-.1 6.5L15 12 3.3 13.9z" fill="currentColor" stroke="none"/>',
+    trash: '<path d="M4 7h16M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.8 1.8 0 0 0 1.8 1.6h5.6a1.8 1.8 0 0 0 1.8-1.6L17.5 7M10 11v6M14 11v6"/>',
+    star: '<path d="m12 3.5 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    more: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18.5" cy="12" r="1.4" fill="currentColor"/>',
+    pin: '<path d="M9 4h6l-1 5 3 3v1.5H7V12l3-3z"/><path d="M12 13.5V20"/>',
+    bellOff: '<path d="M8.6 4.4A6 6 0 0 1 18 9.5c0 3.4.8 5.3 1.6 6.5M6.2 6.6A6 6 0 0 0 6 8.4c0 4.3-1.2 6.5-2 7.6h12.5M10.3 20a2 2 0 0 0 3.4 0M3 3l18 18"/>',
+    moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+    lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+    bell: '<path d="M6 8.4a6 6 0 0 1 12 0c0 4.3 1.2 6.5 2 7.6H4c.8-1.1 2-3.3 2-7.6zM10.3 20a2 2 0 0 0 3.4 0"/>',
+    chat: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-4-1L3 20l1.2-4.4A8.4 8.4 0 1 1 21 11.5z"/>',
+    phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+    shield: '<path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/>',
+    logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10"/>',
+    chevron: '<path d="m9 6 6 6-6 6"/>',
+    back: '<path d="m15 6-6 6 6 6"/>',
+    pencil: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M16 7l2.5 2.5M14 9l2 2"/>',
+    devices: '<rect x="3" y="4" width="13" height="10" rx="1.5"/><path d="M7 18h5"/><rect x="16" y="9" width="5" height="11" rx="1.2"/>',
+    block: '<circle cx="12" cy="12" r="8.5"/><path d="m6 6 12 12"/>',
+    image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m20.5 15.5-4.5-4.5L6 19.5"/>',
+    download: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/>',
+    volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.6 7.6 0 0 1 0 11"/>',
+    text: '<path d="M4 7V5h16v2M12 5v14M9 19h6"/>',
+    palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.7 1.8-1.7h2.1A4.3 4.3 0 0 0 21 11c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11.5" r="1.2" fill="currentColor"/><circle cx="11" cy="7.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="8.5" r="1.2" fill="currentColor"/>',
+    alert: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.1"/>',
+    reply: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+    forward: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+    copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/>',
+    eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+    archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+    upload: '<path d="M12 20V9M7.5 13.5 12 9l4.5 4.5M5 4h14"/>',
+    timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9.5 2.5h5"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+    door: '<path d="M14 3.5H6.5v17H14M10 12h11M17.5 8.5 21 12l-3.5 3.5"/>',
+    flag: '<path d="M5 21V4M5 4.5c5-3 9 3 14 0v9c-5 3-9-3-14 0"/>',
+    minus: '<path d="M5 12h14"/>',
+    userMinus: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7M16 11h6"/>',
+    userPlus: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7M19 8v6M16 11h6"/>',
+    crown: '<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z"/>',
+    mapPin: '<path d="M12 21s-7-6.1-7-11.5a7 7 0 0 1 14 0C19 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.2.6 3.5 2.6 3.5 6"/>',
+    x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    call: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>',
+    video: '<rect x="2.5" y="6" width="13.5" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/>',
+    laptop: '<rect x="4" y="5" width="16" height="10.5" rx="1.5"/><path d="M2 19h20"/>',
+    camera: '<path d="M4 8h3l2-2.5h6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'
+};
+
+function icon(name, cls) {
+    const span = document.createElement('span');
+    span.innerHTML = '<svg class="ic' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICON_PATHS[name] || '') + '</svg>';
+    return span.firstChild;
+}
+
+// line-icon button (lekha chhara, kintu screen reader er jonno nam)
+function iconBtn(cls, name, label) {
+    const b = el('button', cls);
+    b.type = 'button';
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.appendChild(icon(name));
+    return b;
+}
+
+// ---------- dark / light (dashboard er nijer button) ----------
+(function setupThemeToggle() {
+    const btn = document.getElementById('theme-toggle');
+    const holder = document.getElementById('theme-icon');
+    if (!btn || !holder) return;
+    const paint = () => {
+        holder.innerHTML = '';
+        holder.appendChild(icon(document.documentElement.getAttribute('data-theme') === 'dark' ? 'sun' : 'moon'));
+    };
+    paint();
+    btn.addEventListener('click', () => {
+        const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        try { localStorage.setItem('theme', next); } catch (e) {}
+        paint();
+    });
+})();
+
 /* =====================================================
    Talkfav dashboard
    - sidebar tab: Chats / My Friends / Find People / Friend Requests / My Profile
@@ -45,6 +151,8 @@ let pinnedList = [];            // server theke pin kora message (purono holeo)
 let chatSettings = {};          // 'u5' / 'g3' -> { pinned_at, archived, muted }
 let showArchived = false;       // Chats e archive kora gulo dekhachhi kina
 let mentionPicks = new Map();   // composer e @ diye bachha: nam -> user id
+let statusGroups = [];          // status: manush onujayi [{ user, statuses, all_viewed }]
+let chatTimerSec = 0;           // khola chat er disappearing timer (second, 0 = bondho)
 
 // reaction: database e shudhu key, screen e emoji
 const REACTION_EMOJI = { love: '❤️', haha: '😂', like: '👍', wow: '😳', fire: '🔥' };
@@ -54,8 +162,13 @@ const REACTION_EMOJI = { love: '❤️', haha: '😂', like: '👍', wow: '😳'
 const EMOJI_CDN = 'https://cdn.jsdelivr.net/npm/@lobehub/fluent-emoji-3d@1.1.0/assets/';
 const EMOJI_RE = /\p{Extended_Pictographic}(?:\uFE0F|[\u{1F3FB}-\u{1F3FF}]|\u200D\p{Extended_Pictographic}\uFE0F?)*/gu;
 
+// picker / reaction er emoji gulo amader nijer server e (assets/emoji) - CDN bondho thakleo dekhabe,
+// ar service worker egulo phone e rekhe dey. Baki emoji CDN theke (prothombar er por phone e thake)
+const LOCAL_EMOJI = new Set(['1f600', '1f603', '1f604', '1f601', '1f606', '1f605', '1f602', '1f923', '1f60a', '1f607', '1f642', '1f609', '1f60d', '1f970', '1f618', '1f60b', '1f61c', '1f92a', '1f60e', '1f929', '1f973', '1f60f', '1f612', '1f614', '1f622', '1f62d', '1f624', '1f621', '1f92f', '1f633', '1f97a', '1f631', '1f914', '1f917', '1f92d', '1f634', '1f644', '1f62c', '1f91d', '1f44d', '1f44e', '1f44f', '1f64c', '1f64f', '1f4aa', '1f44b', '270c-fe0f', '1f44c', '2764-fe0f', '1f9e1', '1f49b', '1f49a', '1f499', '1f49c', '1f5a4', '1f494', '1f4af', '1f525', '2728', '1f389', '1f382', '1f339', '2615', '1f355', '26bd', '1f3cf', '1f319', '2b50', '1f4f7', '1f3ac', '1f3a4', '1f3b5', '1f4ce', '1f39e-fe0f', '1f4ca', '1f4cc', '23f3', '1f6ab', '1f441-fe0f', '2705', '1f515', '1f514', '1f465']);
+
 function emojiUrl(emoji) {
-    return EMOJI_CDN + [...emoji].map(c => c.codePointAt(0).toString(16)).join('-') + '.webp';
+    const code = [...emoji].map(c => c.codePointAt(0).toString(16)).join('-');
+    return (LOCAL_EMOJI.has(code) ? '/assets/emoji/' : EMOJI_CDN) + code + '.webp';
 }
 
 function emojiImg(emoji, extraClass) {
@@ -300,6 +413,8 @@ function init() {
     setInterval(loadGroups, 15000);     // group (backup, socket na thakle)
     loadGroups();
     loadChatSettings();
+    loadStatuses();
+    setInterval(loadStatuses, 5 * 60 * 1000);   // 24 ghonta shesh hoye gele soriye dite
     initPush();                         // aage permission dile app bondho thakleo notification
 
     document.addEventListener('visibilitychange', () => {
@@ -315,13 +430,19 @@ function init() {
 }
 
 async function logout() {
-    // ei device e ar notification na (beshi deri hole opekkha kori na)
-    try { await Promise.race([unsubscribePush(), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}
+    // ei device e ar notification na + session bondho (beshi deri hole opekkha kori na)
+    try {
+        await Promise.race([
+            Promise.all([unsubscribePush(), postJSON('/api/auth/logout', {}).catch(() => {})]),
+            new Promise(r => setTimeout(r, 1500))
+        ]);
+    } catch (e) {}
     localStorage.removeItem('user');
     window.location.href = 'index.html';
 }
 
 function switchTab(tab) {
+    if (tab !== activeTab) settingsSection = null;      // Settings e gele prothome talika
     activeTab = tab;
     document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $('app').classList.remove('chat-open');
@@ -385,6 +506,7 @@ function renderPane() {
     if (activeTab === 'find')     { $('paneTitle').textContent = 'Find People';     renderFind(body); }
     if (activeTab === 'requests') { $('paneTitle').textContent = 'Friend Requests'; renderRequests(body); }
     if (activeTab === 'profile')  { $('paneTitle').textContent = 'My Profile';      renderProfile(body); }
+    if (activeTab === 'settings') { $('paneTitle').textContent = 'Settings';        renderSettings(body); }
 }
 
 function emptyNote(text, buttonText, onClick) {
@@ -410,17 +532,23 @@ function renderChats(body) {
     input.value = friendFilter;
     field.appendChild(input);
     row.appendChild(field);
-    const saved = el('button', 'icon-btn saved-btn', '⭐');
-    saved.type = 'button';
-    saved.title = 'Saved messages';
+    const saved = iconBtn('icon-btn saved-btn', 'star', 'Saved messages');
     saved.addEventListener('click', openSavedMessages);
     row.appendChild(saved);
-    const newGroup = el('button', 'btn-pill new-group-btn', '＋ Group');
+    const newGroup = el('button', 'btn-pill new-group-btn');
+    newGroup.appendChild(icon('plus'));
+    newGroup.appendChild(document.createTextNode('Group'));
     newGroup.type = 'button';
     newGroup.title = 'Create a new group';
     newGroup.addEventListener('click', openCreateGroup);
     row.appendChild(newGroup);
     body.appendChild(row);
+
+    // ⭕ Status strip (ami + friend der status)
+    const strip = el('div', 'status-strip');
+    strip.id = 'statusStrip';
+    body.appendChild(strip);
+    drawStatusStrip();
 
     const list = el('div');
     body.appendChild(list);
@@ -452,7 +580,9 @@ function renderChats(body) {
             const unreadArch = archivedRows.reduce((n, r) => n + r.unread, 0);
             const ar = el('button', 'item archive-row');
             ar.type = 'button';
-            ar.appendChild(el('span', 'archive-icon', showArchived ? '←' : '🗄️'));
+            const ai = el('span', 'archive-icon');
+            ai.appendChild(icon(showArchived ? 'back' : 'archive'));
+            ar.appendChild(ai);
             ar.appendChild(el('strong', '', showArchived ? 'Back to chats' : 'Archived (' + archivedRows.length + ')'));
             if (!showArchived && unreadArch) ar.appendChild(el('b', 'badge muted', String(unreadArch)));
             ar.addEventListener('click', () => { showArchived = !showArchived; draw(); });
@@ -501,15 +631,13 @@ function renderChats(body) {
             }
             item.addEventListener('keydown', (e) => { if (e.key === 'Enter') item.click(); });
             const flags = el('span', 'chat-flags');
-            if (s0.pinned_at) flags.appendChild(el('span', '', '📌'));
-            if (muted) flags.appendChild(el('span', '', '🔕'));
+            if (s0.pinned_at) { const i = icon('pin'); i.setAttribute('aria-label', 'Pinned'); flags.appendChild(i); }
+            if (muted) { const i = icon('bellOff'); i.setAttribute('aria-label', 'Muted'); flags.appendChild(i); }
             if (flags.children.length) item.appendChild(flags);
             if (r.unread) item.appendChild(el('b', 'badge' + (muted ? ' muted' : ''), r.unread > 99 ? '99+' : String(r.unread)));
 
             // ⋯ : Pin / Archive / Mute
-            const more = el('button', 'icon-btn chat-more', '⋯');
-            more.type = 'button';
-            more.title = 'Chat options';
+            const more = iconBtn('icon-btn chat-more', 'more', 'Chat options');
             more.addEventListener('click', (e) => { e.stopPropagation(); openActionMenu(more, chatOptionItems(r)); });
             item.appendChild(more);
             item.addEventListener('contextmenu', (e) => { e.preventDefault(); openActionMenu(more, chatOptionItems(r)); });
@@ -529,6 +657,7 @@ async function loadChatSettings() {
         const next = {};
         (data.settings || []).forEach(r => { next[r.chat_type + r.chat_id] = r; });
         chatSettings = next;
+        applyWallpaper();
         updateBadges();
         if (activeTab === 'chats' && redrawChats) redrawChats();
     } catch (err) { console.error(err); }
@@ -663,6 +792,7 @@ function drawSearchResults(container, searched) {
     container.innerHTML = '';
     if (searchResults.length === 0) {
         if (searched) container.appendChild(emptyNote('No users found.'));
+        else drawSuggestions(container);              // khoja na thakle "People you may know"
         return;
     }
 
@@ -828,7 +958,9 @@ function renderProfile(body) {
     coverFile.accept = 'image/*';
     coverFile.hidden = true;
     coverFile.addEventListener('change', () => { if (coverFile.files[0]) uploadCover(coverFile.files[0], cover); coverFile.value = ''; });
-    const coverBtn = el('button', 'cover-btn', currentUser.cover ? '📷 Change cover' : '📷 Add cover');
+    const coverBtn = el('button', 'cover-btn');
+    coverBtn.appendChild(icon('image'));
+    coverBtn.appendChild(document.createTextNode(currentUser.cover ? 'Change cover' : 'Add cover'));
     coverBtn.type = 'button';
     coverBtn.addEventListener('click', () => coverFile.click());
     cover.appendChild(coverBtn);
@@ -882,36 +1014,22 @@ function renderProfile(body) {
     });
     card.appendChild(rows);
 
-    // ---- Push notification ----
-    const pushBtn = el('button', 'btn-install', '🔔 Notifications: checking...');
-    pushBtn.type = 'button';
-    card.appendChild(pushBtn);
-    refreshPushButton(pushBtn);
-
-    // ---- Install app (PWA) ----
-    if (window.TalkFavPWA) {
-        const st = window.TalkFavPWA.state();
-        const ib = el('button', 'btn-install', st.installed ? '✅ TalkFav app is installed' : '📲 Install TalkFav app');
-        ib.type = 'button';
-        ib.disabled = st.installed;
-        ib.addEventListener('click', () => window.TalkFavPWA.install());
-        card.appendChild(ib);
-    }
-
-    const out = el('button', 'btn-logout', 'Log Out');
-    out.type = 'button';
-    out.addEventListener('click', logout);
-    card.appendChild(out);
+    // ---- shudhu duita bortaam: Edit profile + Settings (baki sob Settings e) ----
+    const acts = el('div', 'profile-actions');
+    const edit = el('button', 'btn-soft');
+    edit.type = 'button';
+    edit.appendChild(icon('pencil'));
+    edit.appendChild(document.createTextNode('Edit profile'));
+    edit.addEventListener('click', openEditProfile);
+    const set = el('button', 'btn-soft');
+    set.type = 'button';
+    set.appendChild(icon('gear'));
+    set.appendChild(document.createTextNode('Settings'));
+    set.addEventListener('click', () => switchTab('settings'));
+    acts.appendChild(edit);
+    acts.appendChild(set);
+    card.appendChild(acts);
     body.appendChild(card);
-
-    // Block kora manush (Unblock)
-    const blockedBox = el('div', 'blocked-box');
-    blockedBox.appendChild(el('div', 'count-note', 'Blocked users'));
-    const list = el('div');
-    list.appendChild(el('small', 'muted-note', 'Loading...'));
-    blockedBox.appendChild(list);
-    body.appendChild(blockedBox);
-    loadBlocked(list);
 }
 
 async function loadBlocked(list) {
@@ -1094,6 +1212,10 @@ function openChat(friend) {
     stopRecording(true);                            // onno chat e gele recording batil
     pinIndex = 0;
     if (isGroup) loadGroupInfo(friend.id);
+    chatTimerSec = 0;
+    loadChatTimer();
+    applyWallpaper();
+    closeGifPanel();
     $('messageInput').focus();
 }
 
@@ -1135,6 +1257,7 @@ function openMsgMenu(msg, anchor) {
             { label: msg.pinned_at ? '📍 Unpin' : '📌 Pin', action: () => togglePin(msg) },
             { label: msg.saved ? '☆ Unsave' : '⭐ Save', action: () => toggleSave(msg) }
         ];
+        if (isMe && isGroupChat()) items.push({ label: '👁 Seen by', action: () => openSeenBy(msg) });
         if (isMe) {
             if (msg.message && !msg.poll) items.push({ label: '✏️ Edit',   action: () => startEdit(msg) });   // shudhu lekha edit hoy
             items.push({ label: '🚫 Unsend', action: () => unsendMessage(msg), danger: true });
@@ -1160,8 +1283,7 @@ function openMsgMenu(msg, anchor) {
     }
 
     items.forEach(item => {
-        const b = el('button', 'msg-menu-item' + (item.danger ? ' danger' : ''), item.label);
-        b.type = 'button';
+        const b = menuItemButton(item);
         b.addEventListener('click', (e) => { e.stopPropagation(); closeMsgMenu(); item.action(); });
         msgMenu.appendChild(b);
     });
@@ -1185,7 +1307,9 @@ document.addEventListener('keydown', (e) => {
     closeMsgMenu();
     closeForward();
     closeEmojiPanel();
+    closeGifPanel();
     if ($('lightbox')) { closeLightbox(); return; }
+    if (sv) { closeStatusViewer(); return; }
     if ($('modalOverlay')) { closeModal(); return; }
     if (recorder && recorder.state === 'recording') { stopRecording(true); return; }
     if (composeMode) cancelCompose();
@@ -1257,7 +1381,7 @@ function showComposeBar() {
 
     const { type, msg } = composeMode;
     const info = el('div', 'compose-info');
-    info.appendChild(el('strong', '', type === 'edit' ? '✏️ Editing message' : '↩️ Replying to ' + senderName(msg.sender_id)));
+    info.appendChild(el('strong', '', type === 'edit' ? 'Editing message' : '↩️ Replying to ' + senderName(msg.sender_id)));
     info.appendChild(el('span', '', shortText(previewText(msg), 80)));
     bar.appendChild(info);
 
@@ -1296,7 +1420,7 @@ function replyQuote(msg) {
     q.appendChild(el('strong', '', msg.reply_sender_id === currentUser.id ? 'You' : (msg.reply_sender_name || senderName(msg.reply_sender_id))));
     let text;
     if (msg.reply_message === null || msg.reply_message === undefined) text = 'Message not available';
-    else if (msg.reply_deleted_at) text = '🚫 Message unsent';
+    else if (msg.reply_deleted_at) text = 'Message unsent';
     else if (!msg.reply_message && msg.reply_attachment_type) text = attachLabel(msg.reply_attachment_type, msg.reply_attachment_name);
     else text = shortText(msg.reply_message, 90);
     const qs = el('span');
@@ -1439,7 +1563,7 @@ function renderPinnedBar() {
 
     const m = pinned[pinIndex];
     const info = el('div', 'pinned-info');
-    info.appendChild(el('strong', '', '📌 Pinned' + (pinned.length > 1 ? ' (' + (pinIndex + 1) + '/' + pinned.length + ')' : '')));
+    info.appendChild(el('strong', '', 'Pinned' + (pinned.length > 1 ? ' (' + (pinIndex + 1) + '/' + pinned.length + ')' : '')));
     const ps = el('span');
     appendRich(ps, shortText(previewText(m), 90));
     info.appendChild(ps);
@@ -1636,7 +1760,12 @@ function setupChatExtras() {
         e.stopPropagation();
         if (!activeChat) return;
         if (activeChat.isGroup) openActionMenu(hmore, groupMenuItems());
-        else openActionMenu(hmore, friendMenuItems(activeChat, 'friend').concat(chatOptionItems({ type: 'friend', f: activeChat })));
+        else openActionMenu(hmore, friendMenuItems(activeChat, 'friend').concat(chatOptionItems({ type: 'friend', f: activeChat }), [
+            { label: '⏳ Disappearing messages', action: openChatTimer },
+            { label: '🎨 Wallpaper', action: openWallpaper },
+            { label: '⏰ Schedule message', action: openSchedule },
+            { label: '📤 Export chat', action: exportChat }
+        ]));
     });
     actions.appendChild(hmore);
     ['chatTitle', 'chatAvatar'].forEach(id => {
@@ -1653,7 +1782,7 @@ function setupChatExtras() {
     // composer e 😊 button + emoji panel
     const composer = document.querySelector('.composer');
     const ebtn = el('button', 'emoji-btn');
-    ebtn.appendChild(emojiImg('😊'));
+    ebtn.appendChild(icon('smile'));
     ebtn.type = 'button';
     ebtn.title = 'Emoji';
     ebtn.setAttribute('aria-label', 'Emoji');
@@ -1663,19 +1792,1361 @@ function setupChatExtras() {
     const panel = el('div', 'emoji-panel');
     panel.id = 'emojiPanel';
     panel.hidden = true;
+    // upore duita tab: Emoji / Sticker
+    const tabs = el('div', 'emoji-tabs');
+    const tE = el('button', 'chip active', '😊 Emoji');
+    const tS = el('button', 'chip', '🧸 Stickers');
+    tE.type = tS.type = 'button';
+    tabs.appendChild(tE);
+    tabs.appendChild(tS);
+    panel.appendChild(tabs);
+    const emojiGrid = el('div', 'emoji-grid');
     EMOJIS.forEach(emoji => {
         const b = el('button', 'emoji-item');
         b.appendChild(emojiImg(emoji));
         b.title = emoji;
         b.type = 'button';
         b.addEventListener('click', () => insertEmoji(emoji));
-        panel.appendChild(b);
+        emojiGrid.appendChild(b);
     });
+    const stickerGrid = el('div', 'emoji-grid sticker-grid');
+    stickerGrid.hidden = true;
+    STICKERS.forEach(code => {
+        const b = el('button', 'sticker-item');
+        b.type = 'button';
+        const img = el('img');
+        img.src = '/assets/stickers/' + code + '.webp';
+        img.alt = 'sticker';
+        img.loading = 'lazy';
+        b.appendChild(img);
+        b.addEventListener('click', () => { closeEmojiPanel(); sendSticker(code); });
+        stickerGrid.appendChild(b);
+    });
+    panel.appendChild(emojiGrid);
+    panel.appendChild(stickerGrid);
+    tE.addEventListener('click', () => { tE.classList.add('active'); tS.classList.remove('active'); emojiGrid.hidden = false; stickerGrid.hidden = true; });
+    tS.addEventListener('click', () => { tS.classList.add('active'); tE.classList.remove('active'); emojiGrid.hidden = true; stickerGrid.hidden = false; });
     panel.addEventListener('click', (e) => e.stopPropagation());
     document.body.appendChild(panel);
     document.addEventListener('click', closeEmojiPanel);
 
     setupFileSharing();     // 📎 🎤 drag & drop, upload progress
+}
+
+// =====================================================
+// SETTINGS (WhatsApp / Telegram er moto: talika -> bhitore)
+// =====================================================
+let settingsSection = null;
+let isAdminUser = null;
+
+// nijer device er pochhondo (browser e thake)
+const prefs = {
+    get sound() { return localStorage.getItem('tf_sound') !== '0'; },
+    set sound(v) { localStorage.setItem('tf_sound', v ? '1' : '0'); },
+    get textSize() { return localStorage.getItem('tf_textsize') || 'm'; },
+    set textSize(v) { localStorage.setItem('tf_textsize', v); applyTextSize(); },
+    get themeMode() { return localStorage.getItem('tf_theme_mode') || localStorage.getItem('theme') || 'light'; },
+    set themeMode(v) { localStorage.setItem('tf_theme_mode', v); applyThemeMode(); }
+};
+
+function applyTextSize() {
+    document.body.classList.remove('text-s', 'text-m', 'text-l');
+    document.body.classList.add('text-' + prefs.textSize);
+}
+const systemDark = matchMedia('(prefers-color-scheme: dark)');
+function applyThemeMode() {
+    const mode = prefs.themeMode;
+    const theme = mode === 'system' ? (systemDark.matches ? 'dark' : 'light') : mode;
+    document.documentElement.setAttribute('data-theme', theme);
+    try { localStorage.setItem('theme', theme); } catch (e) {}
+    const holder = document.getElementById('theme-icon');
+    if (holder) { holder.innerHTML = ''; holder.appendChild(icon(theme === 'dark' ? 'sun' : 'moon')); }
+}
+systemDark.addEventListener('change', () => { if (prefs.themeMode === 'system') applyThemeMode(); });
+applyTextSize();
+if (prefs.themeMode === 'system') applyThemeMode();
+// uporer chand/surjo button chaple "System" theke ber hoye jay
+document.getElementById('theme-toggle') && document.getElementById('theme-toggle').addEventListener('click', () => {
+    localStorage.setItem('tf_theme_mode', document.documentElement.getAttribute('data-theme'));
+});
+
+const SETTINGS_SECTIONS = [
+    { key: 'account', icon: 'user', title: 'Account', sub: 'Name, phone, country, photo' },
+    { key: 'privacy', icon: 'lock', title: 'Privacy & security', sub: 'Last seen, read receipts, password, blocked' },
+    { key: 'notifications', icon: 'bell', title: 'Notifications', sub: 'Push notifications, message sound' },
+    { key: 'chats', icon: 'chat', title: 'Chats', sub: 'Theme, text size, wallpaper' },
+    { key: 'app', icon: 'phone', title: 'App', sub: 'Install TalkFav, about' },
+    { key: 'admin', icon: 'shield', title: 'Admin panel', sub: 'Reports, users, statistics', admin: true }
+];
+
+function renderSettings(body) {
+    if (!settingsSection) return renderSettingsList(body);
+    const sec = SETTINGS_SECTIONS.find(x => x.key === settingsSection) || { title: 'Settings' };
+    const head = el('div', 'set-head');
+    const back = iconBtn('icon-btn', 'back', 'Back to settings');
+    back.addEventListener('click', () => { settingsSection = null; renderPane(); });
+    head.appendChild(back);
+    head.appendChild(el('h3', '', sec.title));
+    body.appendChild(head);
+    const box = el('div', 'set-body');
+    body.appendChild(box);
+    ({ account: setAccount, privacy: setPrivacy, notifications: setNotifications, chats: setChats, app: setApp, admin: setAdmin }[settingsSection] || (() => {}))(box);
+}
+
+function renderSettingsList(body) {
+    // upore nijer chhoto card
+    const me = el('button', 'set-me');
+    me.type = 'button';
+    me.appendChild(makeAvatar(currentUser.name, '', currentUser.avatar));
+    const info = el('span', 'set-me-info');
+    info.appendChild(el('strong', '', currentUser.name));
+    info.appendChild(el('small', '', currentUser.email || ''));
+    me.appendChild(info);
+    me.appendChild(icon('chevron', 'set-chev'));
+    me.addEventListener('click', () => switchTab('profile'));
+    body.appendChild(me);
+
+    const list = el('div', 'set-list');
+    SETTINGS_SECTIONS.forEach(sec => {
+        const row = settingsRow(sec.icon, sec.title, sec.sub, () => { settingsSection = sec.key; renderPane(); });
+        if (sec.admin) {
+            row.hidden = isAdminUser !== true;
+            if (isAdminUser === null) request('/api/users/me').then(d => { isAdminUser = !!(d && d.is_admin); row.hidden = !isAdminUser; }).catch(() => {});
+        }
+        list.appendChild(row);
+    });
+    body.appendChild(list);
+
+    const danger = el('div', 'set-list');
+    danger.appendChild(settingsRow('logout', 'Log out', '', logout, 'danger'));
+    danger.appendChild(settingsRow('trash', 'Delete account', 'Permanently remove your account', openDeleteAccount, 'danger'));
+    body.appendChild(danger);
+}
+
+function settingsRow(iconName, title, sub, onClick, cls) {
+    const row = el('button', 'set-row' + (cls ? ' ' + cls : ''));
+    row.type = 'button';
+    row.appendChild(el('span', 'set-ico')).appendChild(icon(iconName));
+    const t = el('span', 'set-text');
+    t.appendChild(el('strong', '', title));
+    if (sub) t.appendChild(el('small', '', sub));
+    row.appendChild(t);
+    if (cls !== 'danger') row.appendChild(icon('chevron', 'set-chev'));
+    row.addEventListener('click', onClick);
+    return row;
+}
+
+function setSwitch(label, sub, checked, onChange) {
+    const row = el('label', 'privacy-row');
+    const info = el('span', 'privacy-info');
+    info.appendChild(el('strong', '', label));
+    if (sub) info.appendChild(el('small', '', sub));
+    row.appendChild(info);
+    const cb = el('input', 'switch');
+    cb.type = 'checkbox';
+    cb.checked = checked;
+    cb.addEventListener('change', () => onChange(cb.checked, cb));
+    row.appendChild(cb);
+    return row;
+}
+
+function segmented(label, options, value, onPick) {
+    const wrap = el('div', 'set-field');
+    wrap.appendChild(el('strong', 'set-label', label));
+    const seg = el('div', 'segmented');
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', label);
+    options.forEach(([v, text]) => {
+        const b = el('button', 'seg' + (v === value ? ' on' : ''), text);
+        b.type = 'button';
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', String(v === value));
+        b.addEventListener('click', () => {
+            seg.querySelectorAll('.seg').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
+            onPick(v);
+        });
+        seg.appendChild(b);
+    });
+    wrap.appendChild(seg);
+    return wrap;
+}
+
+// ---------- bibhag gulo ----------
+function setAccount(box) {
+    const rows = el('div', 'info-rows');
+    [['Name', currentUser.name], ['Email', currentUser.email], ['Phone', currentUser.phone || '—'], ['Country', currentUser.country || '—']].forEach(([k, v]) => {
+        const r = el('div', 'info-row');
+        r.appendChild(el('span', '', k));
+        r.appendChild(el('b', '', v));
+        rows.appendChild(r);
+    });
+    box.appendChild(rows);
+    const list = el('div', 'set-list');
+    list.appendChild(settingsRow('pencil', 'Edit name, phone and country', '', openEditProfile));
+    list.appendChild(settingsRow('image', 'Profile photo and cover', 'Change them on your profile', () => switchTab('profile')));
+    box.appendChild(list);
+}
+
+async function setPrivacy(box) {
+    const form = el('div', 'privacy-form');
+    form.appendChild(el('small', 'muted-note', 'Loading...'));
+    box.appendChild(form);
+    let data = {};
+    try { data = await request('/api/users/privacy'); } catch (e) {}
+    if (!box.isConnected) return;
+    form.innerHTML = '';
+    const p = data.privacy || {};
+    const save = async (change, revert) => {
+        const r = await postJSON('/api/users/privacy', change).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not save.'); revert(); return; }
+        showToast('Privacy', 'Saved');
+    };
+    form.appendChild(setSwitch('Show when I\u2019m online', 'Friends see a green dot when you are online.', !p.hide_online,
+        (on, cb) => save({ hide_online: !on }, () => { cb.checked = !on; })));
+    form.appendChild(setSwitch('Show my last seen', 'Friends see "Last seen 5 min ago".', !p.hide_last_seen,
+        (on, cb) => save({ hide_last_seen: !on }, () => { cb.checked = !on; })));
+    form.appendChild(setSwitch('Read receipts', 'If you turn this off, you also won\u2019t see when others read your messages.', p.read_receipts !== false,
+        (on, cb) => save({ read_receipts: on }, () => { cb.checked = !on; })));
+    form.appendChild(segmented('Who can see my profile photo', [['everyone', 'Everyone'], ['friends', 'Only friends']], p.avatar_visibility || 'everyone',
+        (v) => save({ avatar_visibility: v }, () => {})));
+
+    const sec = el('div', 'set-list');
+    sec.appendChild(settingsRow('key', 'Change password', '', openChangePassword));
+    sec.appendChild(settingsRow('devices', 'Active sessions', 'Devices where you are logged in', openSessions));
+    box.appendChild(sec);
+
+    const blocked = el('div', 'blocked-box');
+    blocked.appendChild(el('div', 'count-note', 'Blocked users'));
+    const list = el('div');
+    blocked.appendChild(list);
+    box.appendChild(blocked);
+    loadBlocked(list);
+}
+
+function setNotifications(box) {
+    const form = el('div', 'privacy-form');
+    const push = el('button', 'btn-install', 'Checking...');
+    push.type = 'button';
+    const pushRow = el('div', 'set-field');
+    pushRow.appendChild(el('strong', 'set-label', 'Push notifications'));
+    pushRow.appendChild(el('small', 'muted-note', 'Get messages and missed calls even when TalkFav is closed.'));
+    pushRow.appendChild(push);
+    form.appendChild(pushRow);
+    refreshPushButton(push);
+    form.appendChild(setSwitch('Message sound', 'Play a short sound when a new message arrives.', prefs.sound, (on) => {
+        prefs.sound = on;
+        if (on) beep();
+    }));
+    box.appendChild(form);
+}
+
+function setChats(box) {
+    const form = el('div', 'privacy-form');
+    form.appendChild(segmented('Theme', [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']], prefs.themeMode, (v) => { prefs.themeMode = v; }));
+    form.appendChild(el('small', 'muted-note set-hint', 'System follows your phone or computer setting.'));
+    form.appendChild(segmented('Message text size', [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']], prefs.textSize, (v) => { prefs.textSize = v; }));
+    const preview = el('div', 'text-preview');
+    preview.appendChild(el('div', 'msg them', 'This is how your messages will look.'));
+    form.appendChild(preview);
+    box.appendChild(form);
+    const list = el('div', 'set-list');
+    list.appendChild(settingsRow('palette', 'Wallpaper for all chats', 'Pick a background for every chat', () => openWallpaper(true)));
+    box.appendChild(list);
+}
+
+function setApp(box) {
+    const list = el('div', 'set-list');
+    if (window.TalkFavPWA) {
+        const st = window.TalkFavPWA.state();
+        const row = settingsRow('download', st.installed ? 'TalkFav is installed' : 'Install TalkFav', st.installed ? 'You are using the app' : 'Use it like an app on this device',
+            () => { if (!st.installed) window.TalkFavPWA.install(); });
+        list.appendChild(row);
+    }
+    box.appendChild(list);
+    const about = el('div', 'set-about');
+    about.appendChild(el('strong', '', 'TalkFav'));
+    about.appendChild(el('small', '', 'Chat, call and share with your favourite people.'));
+    const gh = el('a', '', 'Source code on GitHub');
+    gh.href = 'https://github.com/Najiur11/talkfav_chat';
+    gh.target = '_blank';
+    gh.rel = 'noopener';
+    about.appendChild(gh);
+    box.appendChild(about);
+}
+
+function setAdmin(box) {
+    const list = el('div', 'set-list');
+    list.appendChild(settingsRow('shield', 'Open admin panel', 'Reports, users and statistics', openAdminPanel));
+    box.appendChild(list);
+}
+
+// =====================================================
+// ACCOUNT: Edit profile, Password, Sessions, Delete
+// =====================================================
+async function openEditProfile() {
+    const box = openModal('✏️ Edit profile');
+    const form = el('div', 'group-form');
+    const field = (label, value, ph, max) => {
+        form.appendChild(el('small', 'muted-note', label));
+        const i = el('input', 'picker-search');
+        i.type = 'text';
+        i.value = value || '';
+        i.placeholder = ph;
+        i.maxLength = max;
+        form.appendChild(i);
+        return i;
+    };
+    const name = field('Name', currentUser.name, 'Your name', 100);
+    const phone = field('Phone', currentUser.phone, '+880 1XXX-XXXXXX', 30);
+    const country = field('Country', currentUser.country, 'Country', 100);
+    const actions = el('div', 'fwd-actions');
+    const cancel = el('button', 'btn-sm ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeModal);
+    const save = el('button', 'btn-sm', 'Save');
+    save.type = 'button';
+    save.addEventListener('click', async () => {
+        save.disabled = true;
+        const r = await postJSON('/api/users/profile', { name: name.value, phone: phone.value, country: country.value }).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not save.'); save.disabled = false; return; }
+        Object.assign(currentUser, { name: r.user.name, phone: r.user.phone, country: r.user.country });
+        localStorage.setItem('user', JSON.stringify(currentUser));
+        $('meName').textContent = currentUser.name;
+        setAvatar($('meAvatar'), currentUser.name, currentUser.avatar);
+        closeModal();
+        if (activeTab === 'profile') renderPane();
+        showToast('Profile', 'Saved ✓');
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    form.appendChild(actions);
+    box.appendChild(form);
+}
+
+async function openChangePassword() {
+    const box = openModal('🔑 Change password');
+    const form = el('div', 'group-form');
+    form.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(form);
+    let me = {};
+    try { me = (await request('/api/users/me')).user || {}; } catch (e) {}
+    if (!$('modalOverlay')) return;
+    form.innerHTML = '';
+    const pw = (ph) => { const i = el('input', 'picker-search'); i.type = 'password'; i.placeholder = ph; i.autocomplete = 'new-password'; form.appendChild(i); return i; };
+    let cur = null;
+    if (me.password_set) cur = pw('Current password');
+    else form.appendChild(el('p', 'muted-note', 'You signed up with Google. Set a password so you can also log in with your email.'));
+    const n1 = pw('New password (at least 6 characters)');
+    const n2 = pw('Repeat new password');
+    form.appendChild(el('small', 'muted-note', 'For safety, your other devices will be logged out.'));
+    const actions = el('div', 'fwd-actions');
+    const cancel = el('button', 'btn-sm ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeModal);
+    const save = el('button', 'btn-sm', me.password_set ? 'Change password' : 'Set password');
+    save.type = 'button';
+    save.addEventListener('click', async () => {
+        if (n1.value.length < 6) { alert('New password must be at least 6 characters.'); return; }
+        if (n1.value !== n2.value) { alert('The new passwords do not match.'); return; }
+        save.disabled = true;
+        const r = await postJSON('/api/users/password', { current: cur ? cur.value : '', password: n1.value }).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not change password.'); save.disabled = false; return; }
+        closeModal();
+        showToast('Password', r.message || 'Changed ✓');
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    form.appendChild(actions);
+}
+
+async function openSessions() {
+    const box = openModal('📱 Active sessions');
+    const body = el('div', 'seen-list');
+    body.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(body);
+    let d = {};
+    try { d = await request('/api/sessions'); } catch (e) {}
+    if (!$('modalOverlay')) return;
+    body.innerHTML = '';
+    if (d.legacy) body.appendChild(el('p', 'muted-note', 'Log out and log in again on this device to see it in the list.'));
+    (d.sessions || []).forEach(sx => {
+        const row = el('div', 'item session-row');
+        const si = el('span', 'session-icon');
+        si.appendChild(icon(/Android|iPhone/.test(sx.device) ? 'phone' : 'laptop'));
+        row.appendChild(si);
+        const info = el('div', 'item-body');
+        info.appendChild(el('strong', '', sx.device + (sx.current ? ' (this device)' : '')));
+        info.appendChild(el('small', '', 'Active ' + lastSeenText(sx.last_used).replace('Last seen ', '') + (sx.ip ? ' · ' + sx.ip : '')));
+        row.appendChild(info);
+        if (!sx.current) {
+            const b = el('button', 'btn-sm ghost', 'Log out');
+            b.type = 'button';
+            b.addEventListener('click', async () => {
+                b.disabled = true;
+                const r = await postJSON('/api/sessions/' + sx.id + '/revoke', {}).catch(() => ({}));
+                if (r.ok) row.remove(); else { alert(r.message || 'Could not log out.'); b.disabled = false; }
+            });
+            row.appendChild(b);
+        }
+        body.appendChild(row);
+    });
+    const all = el('button', 'btn-sm danger', 'Log out all other devices');
+    all.type = 'button';
+    all.addEventListener('click', async () => {
+        if (!confirm('Log out from all other devices?')) return;
+        const r = await postJSON('/api/sessions/revoke-others', {}).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not log out.'); return; }
+        closeModal();
+        showToast('Sessions', 'All other devices were logged out ✓');
+    });
+    body.appendChild(all);
+}
+
+async function openDeleteAccount() {
+    const box = openModal('🗑️ Delete account');
+    const form = el('div', 'group-form');
+    form.appendChild(el('p', 'delete-warning', 'This permanently deletes your account, your messages, statuses and files, and removes you from all friends and groups. This cannot be undone.'));
+    let me = {};
+    try { me = (await request('/api/users/me')).user || {}; } catch (e) {}
+    let pw = null;
+    if (me.password_set) { pw = el('input', 'picker-search'); pw.type = 'password'; pw.placeholder = 'Your password'; form.appendChild(pw); }
+    const confirmBox = el('input', 'picker-search');
+    confirmBox.type = 'text';
+    confirmBox.placeholder = 'Type DELETE to confirm';
+    form.appendChild(confirmBox);
+    const actions = el('div', 'fwd-actions');
+    const cancel = el('button', 'btn-sm ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeModal);
+    const go = el('button', 'btn-sm danger', 'Delete forever');
+    go.type = 'button';
+    go.addEventListener('click', async () => {
+        if (confirmBox.value !== 'DELETE') { alert('Please type DELETE in capital letters.'); return; }
+        go.disabled = true;
+        const r = await postJSON('/api/users/delete', { confirm: 'DELETE', password: pw ? pw.value : '' }).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not delete account.'); go.disabled = false; return; }
+        try { await unsubscribePush(); } catch (e) {}
+        localStorage.removeItem('user');
+        alert('Your account has been deleted. Goodbye!');
+        window.location.href = 'index.html';
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(go);
+    form.appendChild(actions);
+    box.appendChild(form);
+}
+
+// =====================================================
+// PEOPLE YOU MAY KNOW
+// =====================================================
+async function drawSuggestions(container) {
+    let d = {};
+    try { d = await request('/api/users/suggestions'); } catch (e) {}
+    const list = d.users || [];
+    if (!list.length || !container.isConnected || searchResults.length) return;
+    container.appendChild(el('div', 'count-note', 'People you may know'));
+    list.forEach(u => {
+        const item = el('div', 'item');
+        const av = makeAvatar(u.name, 'clickable', u.avatar);
+        av.addEventListener('click', () => openProfile(u.id));
+        item.appendChild(av);
+        const info = el('div', 'item-body clickable');
+        info.appendChild(el('strong', '', u.name));
+        info.appendChild(el('small', '', u.mutual + ' mutual friend' + (u.mutual > 1 ? 's' : '')));
+        info.addEventListener('click', () => openProfile(u.id));
+        item.appendChild(info);
+        const add = el('button', 'btn-sm', 'Add Friend');
+        add.type = 'button';
+        add.addEventListener('click', async () => { if (await sendRequest(u.id, add)) { add.textContent = 'Requested ✓'; add.disabled = true; } });
+        item.appendChild(add);
+        container.appendChild(item);
+    });
+}
+
+// =====================================================
+// LOCATION + STICKER
+// =====================================================
+const STICKERS = ['1f431', '1f436', '1f984', '1f43c', '1f98a', '1f438', '1f435', '1f427', '1f43b', '1f430', '1f428', '1f42f', '1f389', '1f496', '1f525', '1f44d', '1f602', '1f60d', '1f973', '1f62d', '1f60e', '1f914', '1f64f', '1f4af', '1f339', '1f355', '2615', '1f382', '1f308', '1f680', '1f47b', '1f381'];
+
+async function sendSticker(code) {
+    if (!activeChat) return;
+    const r = await postJSON('/api/messages/send', Object.assign({ message: '', attachment: { type: 'sticker', name: code } }, chatTarget())).catch(() => ({}));
+    if (!r.ok) { alert(r.message || 'Could not send sticker.'); return; }
+    loadMessages(true);
+}
+
+function shareLocation() {
+    if (!activeChat) return;
+    if (!navigator.geolocation) { alert('Location is not supported in this browser.'); return; }
+    const target = chatTarget();
+    showToast('Location', 'Finding your location...');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+        if (!confirm('Send your current location to this chat?')) return;
+        const r = await postJSON('/api/messages/send', Object.assign({ message: '', attachment: { type: 'location', lat: pos.coords.latitude, lon: pos.coords.longitude } }, target)).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not send location.'); return; }
+        loadMessages(true);
+    }, (err) => {
+        alert(err.code === 1 ? 'Please allow location access to share where you are.' : 'Could not get your location. Try again.');
+    }, { enableHighAccuracy: true, timeout: 15000 });
+}
+
+// OpenStreetMap er ekta tile e jayga ta majhkhane + pin
+function locationCard(latlon) {
+    const [lat, lon] = String(latlon || '').split(',').map(Number);
+    const card = el('a', 'loc-card');
+    card.href = 'https://www.google.com/maps?q=' + lat + ',' + lon;
+    card.target = '_blank';
+    card.rel = 'noopener noreferrer';
+    card.addEventListener('click', (e) => e.stopPropagation());
+    if (isFinite(lat) && isFinite(lon)) {
+        const z = 15, n = Math.pow(2, z);
+        const xf = (lon + 180) / 360 * n;
+        const rad = lat * Math.PI / 180;
+        const yf = (1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2 * n;
+        const tx = Math.floor(xf), ty = Math.floor(yf);
+        const map = el('div', 'loc-map');
+        // 3x3 tile, jate jayga ta jekono kone thakleo map bhora thake
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const t = el('img', 'loc-tile');
+            t.src = 'https://tile.openstreetmap.org/' + z + '/' + (tx + dx) + '/' + (ty + dy) + '.png';
+            t.alt = '';
+            t.loading = 'lazy';
+            t.style.left = ((dx + 1) * 256 - (xf - tx) * 256 - 256 + 130) + 'px';
+            t.style.top = ((dy + 1) * 256 - (yf - ty) * 256 - 256 + 80) + 'px';
+            map.appendChild(t);
+        }
+        map.appendChild(el('span', 'loc-pin', '📍'));
+        map.appendChild(el('small', 'loc-credit', '© OpenStreetMap'));
+        card.appendChild(map);
+    }
+    const foot = el('span', 'loc-foot');
+    const lt = el('strong', 'loc-title');
+    lt.appendChild(icon('mapPin'));
+    lt.appendChild(document.createTextNode('Location'));
+    foot.appendChild(lt);
+    foot.appendChild(el('small', '', 'Open in Google Maps ↗'));
+    card.appendChild(foot);
+    return card;
+}
+
+// =====================================================
+// SCHEDULED MESSAGES + EXPORT
+// =====================================================
+async function openSchedule() {
+    if (!activeChat) return;
+    const target = activeChat;
+    const box = openModal('⏰ Schedule a message');
+    const form = el('div', 'group-form');
+    const text = el('textarea', 'report-details');
+    text.placeholder = 'Write your message...';
+    text.maxLength = 5000;
+    text.value = $('messageInput').value || '';
+    form.appendChild(text);
+    const when = el('input', 'picker-search');
+    when.type = 'datetime-local';
+    const pad = (n) => String(n).padStart(2, '0');
+    const d0 = new Date(Date.now() + 60 * 60 * 1000);
+    when.value = d0.getFullYear() + '-' + pad(d0.getMonth() + 1) + '-' + pad(d0.getDate()) + 'T' + pad(d0.getHours()) + ':' + pad(d0.getMinutes());
+    form.appendChild(el('small', 'muted-note', 'Send at (your local time):'));
+    form.appendChild(when);
+    const list = el('div', 'sched-list');
+    form.appendChild(list);
+    const actions = el('div', 'fwd-actions');
+    const cancel = el('button', 'btn-sm ghost', 'Close');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeModal);
+    const go = el('button', 'btn-sm', 'Schedule');
+    go.type = 'button';
+    const params = target.isGroup ? 'group=' + target.id : 'user=' + target.id;
+    const drawList = async () => {
+        list.innerHTML = '';
+        let d = {};
+        try { d = await request('/api/messages/scheduled?' + params); } catch (e) {}
+        const items = d.scheduled || [];
+        if (!items.length) return;
+        list.appendChild(el('div', 'count-note', 'Scheduled in this chat (' + items.length + ')'));
+        items.forEach(it => {
+            const row = el('div', 'sched-item');
+            const info = el('div', 'item-body');
+            info.appendChild(el('strong', '', new Date(it.send_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })));
+            info.appendChild(el('small', '', shortText(it.message, 80)));
+            row.appendChild(info);
+            const x = el('button', 'btn-sm ghost', 'Cancel');
+            x.type = 'button';
+            x.addEventListener('click', async () => { await postJSON('/api/messages/scheduled/' + it.id + '/cancel', {}).catch(() => {}); drawList(); });
+            row.appendChild(x);
+            list.appendChild(row);
+        });
+    };
+    go.addEventListener('click', async () => {
+        const at = new Date(when.value);
+        if (!text.value.trim()) { alert('Write a message first.'); return; }
+        if (isNaN(at)) { alert('Pick a date and time.'); return; }
+        go.disabled = true;
+        const r = await postJSON('/api/messages/schedule', Object.assign({ message: text.value.trim(), send_at: at.toISOString() },
+            target.isGroup ? { group_id: target.id } : { receiver_id: target.id })).catch(() => ({}));
+        go.disabled = false;
+        if (!r.ok) { alert(r.message || 'Could not schedule.'); return; }
+        text.value = '';
+        if ($('messageInput').value) $('messageInput').value = '';
+        showToast('Scheduled', 'Will be sent at ' + at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
+        drawList();
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(go);
+    form.appendChild(actions);
+    box.appendChild(form);
+    drawList();
+}
+
+async function exportChat() {
+    if (!activeChat) return;
+    try {
+        const res = await authFetch('/api/chats/export?' + (activeChat.isGroup ? 'group=' : 'user=') + activeChat.id);
+        if (!res.ok) { alert('Could not export this chat.'); return; }
+        const blob = await res.blob();
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'talkfav-' + (activeChat.name || 'chat').replace(/[^\w\- ]+/g, '').trim() + '.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        showToast('Export', 'Chat downloaded ✓');
+    } catch (err) { console.error(err); alert('Could not export this chat.'); }
+}
+
+// =====================================================
+// ADMIN PANEL (shudhu ADMIN_EMAILS er manush ra)
+// =====================================================
+async function openAdminPanel() {
+    const box = openModal('🛡️ Admin panel');
+    box.classList.add('admin-box');
+    const body = el('div', 'admin-panel');
+    body.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(body);
+    let st = {}, rep = {};
+    try { [st, rep] = await Promise.all([request('/api/admin/stats'), request('/api/admin/reports')]); } catch (e) {}
+    if (!$('modalOverlay')) return;
+    body.innerHTML = '';
+    if (st.message) { body.appendChild(el('p', 'muted-note', st.message)); return; }
+
+    const grid = el('div', 'admin-stats');
+    [['Users', st.users], ['New (7 days)', st.new_users_7d], ['Online now', st.online], ['Messages', st.messages],
+     ['Today', st.messages_today], ['Groups', st.groups], ['Open reports', st.open_reports], ['Banned', st.banned]].forEach(([k, v]) => {
+        const c = el('div', 'admin-stat');
+        c.appendChild(el('b', '', String(v === undefined ? '-' : v)));
+        c.appendChild(el('small', '', k));
+        grid.appendChild(c);
+    });
+    body.appendChild(grid);
+
+    body.appendChild(el('div', 'count-note', 'Reports'));
+    const reps = rep.reports || [];
+    if (!reps.length) body.appendChild(el('small', 'muted-note', 'No reports. 🎉'));
+    reps.forEach(r => {
+        const row = el('div', 'admin-report' + (r.resolved ? ' done' : ''));
+        const info = el('div', 'item-body');
+        info.appendChild(el('strong', '', r.reported + ' · ' + r.reason + (r.banned ? ' · BANNED' : '')));
+        info.appendChild(el('small', '', 'by ' + r.reporter + ' · ' + dayLabel(new Date(r.created_at)) + (r.details ? ' · "' + shortText(r.details, 80) + '"' : '')));
+        row.appendChild(info);
+        if (!r.resolved) {
+            const ok = el('button', 'btn-sm ghost', 'Resolve');
+            ok.type = 'button';
+            ok.addEventListener('click', async () => { await postJSON('/api/admin/reports/' + r.id + '/resolve', {}); openAdminPanel(); });
+            row.appendChild(ok);
+        }
+        const ban = el('button', 'btn-sm ' + (r.banned ? 'ghost' : 'danger'), r.banned ? 'Unban' : 'Ban');
+        ban.type = 'button';
+        ban.addEventListener('click', () => adminBan(r.reported_id, r.reported, !r.banned));
+        row.appendChild(ban);
+        body.appendChild(row);
+    });
+
+    body.appendChild(el('div', 'count-note', 'Users'));
+    const q = el('input', 'picker-search');
+    q.type = 'text';
+    q.placeholder = 'Search by name or email...';
+    body.appendChild(q);
+    const ulist = el('div', 'admin-users');
+    body.appendChild(ulist);
+    const drawUsers = async () => {
+        let d = {};
+        try { d = await request('/api/admin/users?q=' + encodeURIComponent(q.value.trim())); } catch (e) {}
+        ulist.innerHTML = '';
+        (d.users || []).forEach(u => {
+            const row = el('div', 'admin-report' + (u.banned ? ' done' : ''));
+            const info = el('div', 'item-body');
+            info.appendChild(el('strong', '', u.name + (u.banned ? ' · BANNED' : '')));
+            info.appendChild(el('small', '', u.email + ' · joined ' + dayLabel(new Date(u.created_at)) + (u.reports ? ' · ' + u.reports + ' reports' : '')));
+            row.appendChild(info);
+            if (u.id !== currentUser.id) {
+                const ban = el('button', 'btn-sm ' + (u.banned ? 'ghost' : 'danger'), u.banned ? 'Unban' : 'Ban');
+                ban.type = 'button';
+                ban.addEventListener('click', () => adminBan(u.id, u.name, !u.banned));
+                row.appendChild(ban);
+            }
+            ulist.appendChild(row);
+        });
+    };
+    let t = null;
+    q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(drawUsers, 350); });
+    drawUsers();
+}
+
+async function adminBan(id, name, ban) {
+    if (!confirm((ban ? 'Ban ' : 'Unban ') + name + '?' + (ban ? '\n\nThey will be logged out everywhere and cannot log in.' : ''))) return;
+    const r = await postJSON('/api/admin/users/' + id + '/ban', { ban }).catch(() => ({}));
+    if (!r.ok) { alert(r.message || 'Could not update.'); return; }
+    showToast('Admin', (ban ? 'Banned ' : 'Unbanned ') + name);
+    openAdminPanel();
+}
+
+// =====================================================
+// DISAPPEARING MESSAGES
+// =====================================================
+const TIMER_CHOICES = [[0, 'Off'], [3600, '1 hour'], [86400, '24 hours'], [604800, '7 days'], [7776000, '90 days']];
+function timerText(sec) { const c = TIMER_CHOICES.find(x => x[0] === sec); return c ? c[1] : ''; }
+
+async function loadChatTimer() {
+    if (!activeChat) return;
+    const key0 = chatKey(activeChat);
+    try {
+        const d = await request('/api/chat-timer?type=' + (activeChat.isGroup ? 'g' : 'u') + '&id=' + activeChat.id);
+        if (!activeChat || chatKey(activeChat) !== key0) return;
+        chatTimerSec = d.seconds || 0;
+        refreshChatHead();
+    } catch (e) {}
+}
+
+function openChatTimer() {
+    if (!activeChat) return;
+    const box = openModal('⏳ Disappearing messages');
+    const form = el('div', 'group-form');
+    form.appendChild(el('p', 'muted-note', 'New messages in this chat will disappear for everyone after the time you choose. Messages sent before this change stay.'));
+    const target = activeChat;
+    TIMER_CHOICES.forEach(([sec, label]) => {
+        const row = el('label', 'fwd-row');
+        const r = el('input');
+        r.type = 'radio';
+        r.name = 'chatTimer';
+        r.checked = sec === chatTimerSec;
+        r.addEventListener('change', async () => {
+            const res = await postJSON('/api/chat-timer', { type: target.isGroup ? 'g' : 'u', id: target.id, seconds: sec }).catch(() => ({}));
+            if (!res.ok) { alert(res.message || 'Could not change the timer.'); return; }
+            if (activeChat && chatKey(activeChat) === chatKey(target)) { chatTimerSec = sec; refreshChatHead(); loadMessages(true); }
+            closeModal();
+            showToast('Disappearing messages', sec ? 'On · ' + label : 'Off');
+        });
+        row.appendChild(r);
+        row.appendChild(el('span', '', label));
+        form.appendChild(row);
+    });
+    box.appendChild(form);
+}
+
+// meyad shesh message screen theke-o soriye dao (server o 5 minit por por muche)
+setInterval(() => {
+    if (!currentMsgs.length) return;
+    const now = Date.now();
+    if (currentMsgs.some(m => m.expires_at && new Date(m.expires_at).getTime() <= now)) {
+        currentMsgs = currentMsgs.filter(m => !(m.expires_at && new Date(m.expires_at).getTime() <= now));
+        lastMsgKey = null;
+        renderMessages('auto');
+    }
+}, 30000);
+
+// =====================================================
+// GIF PICKER
+// =====================================================
+let gifPanel = null;
+let gifNext = null;
+let gifQuery = '';
+let gifLoading = false;
+
+function closeGifPanel() { if (gifPanel) gifPanel.hidden = true; }
+
+async function toggleGifPanel(btn) {
+    if (!activeChat) return;
+    if (gifPanel && !gifPanel.hidden) { gifPanel.hidden = true; return; }
+    if (!gifPanel) {
+        gifPanel = el('div', 'gif-panel');
+        const search = el('input', 'picker-search');
+        search.type = 'text';
+        search.placeholder = 'Search GIFs...';
+        let t = null;
+        search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => loadGifs(search.value.trim(), true), 400); });
+        gifPanel.appendChild(search);
+        const grid = el('div', 'gif-grid');
+        grid.addEventListener('scroll', () => { if (grid.scrollTop + grid.clientHeight > grid.scrollHeight - 120) loadGifs(gifQuery, false); });
+        gifPanel.appendChild(grid);
+        const cfg = await getConfig();
+        gifPanel.appendChild(el('small', 'gif-credit', 'Powered by ' + (cfg.gifProvider || 'GIF')));
+        gifPanel.addEventListener('click', (e) => e.stopPropagation());
+        document.body.appendChild(gifPanel);
+        document.addEventListener('click', closeGifPanel);
+        loadGifs('', true);
+    }
+    gifPanel.hidden = false;
+    const r = btn.getBoundingClientRect();
+    const w = Math.min(360, window.innerWidth - 16);
+    gifPanel.style.width = w + 'px';
+    gifPanel.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+    gifPanel.style.top = Math.max(8, r.top - gifPanel.offsetHeight - 8) + 'px';
+    gifPanel.querySelector('input').focus();
+}
+
+async function loadGifs(q, reset) {
+    if (gifLoading || (!reset && !gifNext)) return;
+    gifLoading = true;
+    const grid = gifPanel.querySelector('.gif-grid');
+    if (reset) { grid.innerHTML = ''; gifNext = null; gifQuery = q; grid.appendChild(el('small', 'muted-note', 'Loading...')); }
+    try {
+        const params = new URLSearchParams({ q });
+        if (!reset && gifNext) params.set('pos', gifNext);
+        const d = await request('/api/gifs?' + params);
+        if (q !== gifQuery) return;
+        if (reset) grid.innerHTML = '';
+        if (!d.gifs) { grid.appendChild(el('small', 'muted-note', d.message || 'Could not load GIFs.')); return; }
+        if (reset && !d.gifs.length) grid.appendChild(el('small', 'muted-note', 'No GIFs found.'));
+        d.gifs.forEach(g => {
+            const b = el('button', 'gif-item');
+            b.type = 'button';
+            b.title = g.title;
+            const img = el('img');
+            img.src = g.preview;
+            img.alt = g.title;
+            img.loading = 'lazy';
+            img.referrerPolicy = 'no-referrer';
+            b.appendChild(img);
+            b.addEventListener('click', () => sendGif(g));
+            grid.appendChild(b);
+        });
+        gifNext = d.next;
+    } catch (err) { console.error(err); }
+    finally { gifLoading = false; }
+}
+
+async function sendGif(g) {
+    if (!activeChat) return;
+    closeGifPanel();
+    try {
+        const body = Object.assign({ message: '', attachment: { type: 'gif', url: g.url, name: g.title } }, chatTarget());
+        const r = await postJSON('/api/messages/send', body);
+        if (!r.ok) { alert(r.message || 'Could not send GIF.'); return; }
+        loadMessages(true);
+    } catch (err) { console.error(err); }
+}
+
+// =====================================================
+// CHAT WALLPAPER (shudhu nijer screen e)
+// =====================================================
+const WALLPAPERS = ['sky', 'sunset', 'mint', 'lavender', 'peach', 'night', 'ocean', 'forest', 'dots', 'doodle', 'hearts', 'grid'];
+
+function currentWallpaper() {
+    if (!activeChat) return null;
+    const own = chatSettings[(activeChat.isGroup ? 'g' : 'u') + activeChat.id];
+    if (own && own.wallpaper) return own.wallpaper;
+    const all = chatSettings['a0'];
+    return all && all.wallpaper ? all.wallpaper : null;
+}
+
+function applyWallpaper() {
+    const sec = $('chatSection');
+    if (!sec) return;
+    sec.className = sec.className.split(' ').filter(c => !c.startsWith('wp-')).join(' ');
+    sec.style.removeProperty('--wp-image');
+    const w = currentWallpaper();
+    if (!w) return;
+    if (WALLPAPERS.includes(w)) sec.classList.add('wp-' + w);
+    else if (/^https:\/\//.test(w)) {
+        sec.classList.add('wp-photo');
+        sec.style.setProperty('--wp-image', 'url("' + cldUrl(w, 'c_fill,w_1200,h_1600,q_auto,f_auto').replace(/"/g, '') + '")');
+    }
+}
+
+function openWallpaper(allOnly) {
+    if (!activeChat && !allOnly) return;
+    const target = allOnly ? null : activeChat;
+    const box = openModal('🎨 Chat wallpaper');
+    const form = el('div', 'group-form');
+    const allRow = el('label', 'fwd-row');
+    const all = el('input');
+    all.type = 'checkbox';
+    allRow.appendChild(all);
+    allRow.appendChild(el('span', '', 'Use for all my chats'));
+    if (allOnly) { all.checked = true; allRow.hidden = true; }      // Settings theke: sob chat er default
+
+    const save = async (wallpaper) => {
+        const body = all.checked ? { type: 'a', wallpaper } : { type: target.isGroup ? 'g' : 'u', id: target.id, wallpaper };
+        const r = await postJSON('/api/chat-settings', body).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not save wallpaper.'); return; }
+        // "sob chat" dile ei chat er nijer ta muche dei, jate default ta dekhay
+        if (all.checked && target) await postJSON('/api/chat-settings', { type: target.isGroup ? 'g' : 'u', id: target.id, wallpaper: null }).catch(() => {});
+        await loadChatSettings();
+        closeModal();
+        showToast('Wallpaper', 'Updated ✓');
+    };
+
+    const grid = el('div', 'wp-grid');
+    const none = el('button', 'wp-swatch wp-none', 'None');
+    none.type = 'button';
+    none.addEventListener('click', () => save(null));
+    grid.appendChild(none);
+    WALLPAPERS.forEach(w => {
+        const b = el('button', 'wp-swatch wp-' + w + (currentWallpaper() === w ? ' sel' : ''));
+        b.type = 'button';
+        b.title = w;
+        b.addEventListener('click', () => save(w));
+        grid.appendChild(b);
+    });
+    form.appendChild(grid);
+
+    const file = el('input');
+    file.type = 'file';
+    file.accept = 'image/*';
+    file.hidden = true;
+    const prog = el('small', 'muted-note');
+    const up = el('button', 'btn-sm ghost', 'Upload my own photo');
+    up.type = 'button';
+    up.addEventListener('click', () => file.click());
+    file.addEventListener('change', async () => {
+        if (!file.files[0]) return;
+        try {
+            const result = await uploadImageFile(file.files[0], prog);
+            await save({ url: result.secure_url, public_id: result.public_id });
+        } catch (err) { alert(err.message); prog.textContent = ''; }
+    });
+    form.appendChild(up);
+    form.appendChild(file);
+    form.appendChild(prog);
+    form.appendChild(allRow);
+    form.appendChild(el('small', 'muted-note', 'Only you see your wallpaper.'));
+    box.appendChild(form);
+}
+
+// =====================================================
+// PRIVACY SETTINGS
+// =====================================================
+async function openPrivacy() {
+    const box = openModal('🔒 Privacy');
+    const form = el('div', 'privacy-form');
+    form.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(form);
+    let data;
+    try { data = await request('/api/users/privacy'); } catch (e) { data = {}; }
+    if (!$('modalOverlay')) return;
+    form.innerHTML = '';
+    const p = data.privacy || {};
+    const save = async (change, revert) => {
+        const r = await postJSON('/api/users/privacy', change).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not save.'); revert(); return; }
+        showToast('Privacy', 'Saved ✓');
+    };
+    const toggle = (key, title, desc, invert) => {
+        const row = el('label', 'privacy-row');
+        const info = el('span', 'privacy-info');
+        info.appendChild(el('strong', '', title));
+        info.appendChild(el('small', '', desc));
+        row.appendChild(info);
+        const cb = el('input', 'switch');
+        cb.type = 'checkbox';
+        cb.checked = invert ? !p[key] : !!p[key];
+        cb.addEventListener('change', () => {
+            const val = invert ? !cb.checked : cb.checked;
+            save({ [key]: val }, () => { cb.checked = !cb.checked; });
+        });
+        row.appendChild(cb);
+        form.appendChild(row);
+    };
+    toggle('hide_online', 'Show when I\u2019m online', 'Friends see a green dot when you are online.', true);
+    toggle('hide_last_seen', 'Show my last seen', 'Friends see "Last seen 5 min ago".', true);
+    toggle('read_receipts', 'Read receipts (✓✓ and Seen by)', 'If you turn this off, you also won\u2019t see when others read your messages.', false);
+
+    const row = el('div', 'privacy-row');
+    const info = el('span', 'privacy-info');
+    info.appendChild(el('strong', '', 'Who can see my profile photo'));
+    info.appendChild(el('small', '', 'People who are not your friends see your initial instead.'));
+    row.appendChild(info);
+    const sel = el('select', 'setting-select');
+    [['everyone', 'Everyone'], ['friends', 'Only friends']].forEach(([v, t]) => {
+        const o = el('option', '', t);
+        o.value = v;
+        if ((p.avatar_visibility || 'everyone') === v) o.selected = true;
+        sel.appendChild(o);
+    });
+    const prev = sel.value;
+    sel.addEventListener('change', () => save({ avatar_visibility: sel.value }, () => { sel.value = prev; }));
+    row.appendChild(sel);
+    form.appendChild(row);
+}
+
+// =====================================================
+// GROUP "SEEN BY"
+// =====================================================
+async function openSeenBy(msg) {
+    if (!isGroupChat()) return;
+    const box = openModal('👁 Seen by');
+    const body = el('div', 'seen-list');
+    body.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(body);
+    let data;
+    try { data = await request('/api/groups/' + activeChat.id + '/messages/' + msg.id + '/seen'); } catch (e) { data = {}; }
+    if (!$('modalOverlay')) return;
+    body.innerHTML = '';
+    if (!data.seen) { body.appendChild(el('p', 'muted-note', data.message || 'Could not load.')); return; }
+    const section = (title, list, cls) => {
+        body.appendChild(el('div', 'count-note', title + ' (' + list.length + ')'));
+        if (!list.length) { body.appendChild(el('small', 'muted-note', '—')); return; }
+        list.forEach(u => {
+            const r = el('div', 'item ' + cls);
+            r.appendChild(makeAvatar(u.name, '', u.avatar));
+            r.appendChild(el('strong', '', u.name));
+            body.appendChild(r);
+        });
+    };
+    section('✓✓ Seen', data.seen, 'seen-row');
+    section('Not seen yet', data.not_seen, 'unseen-row');
+    body.appendChild(el('small', 'muted-note', 'People who turned off read receipts are not shown.'));
+}
+
+// =====================================================
+// STATUS / STORY (24 ghonta)
+// =====================================================
+const STATUS_BGS = ['#7c5cff', '#2f7bff', '#ec1fc8', '#16a34a', '#f59e0b', '#ef4444', '#0f172a', '#0ea5e9'];
+
+async function loadStatuses() {
+    try {
+        const data = await request('/api/statuses');
+        statusGroups = data.statuses || [];
+        drawStatusStrip();
+    } catch (err) { console.error(err); }
+}
+
+function timeAgo(ts) {
+    const sec = (Date.now() - new Date(ts).getTime()) / 1000;
+    if (sec < 60) return 'just now';
+    if (sec < 3600) return Math.floor(sec / 60) + ' min ago';
+    return Math.floor(sec / 3600) + ' h ago';
+}
+
+function drawStatusStrip() {
+    const strip = $('statusStrip');
+    if (!strip) return;
+    strip.innerHTML = '';
+    const mine = statusGroups.find(g => g.user.id === currentUser.id);
+
+    // amar status: thakle dekho, + diye notun
+    const me = el('div', 'status-item');
+    const meRing = el('button', 'status-ring' + (mine ? ' mine' : ' empty'));
+    meRing.type = 'button';
+    meRing.appendChild(makeAvatar(currentUser.name, '', currentUser.avatar));
+    meRing.addEventListener('click', () => { if (mine) openStatusViewer(statusGroups.indexOf(mine), 0); else openCreateStatus(); });
+    me.appendChild(meRing);
+    const plus = el('button', 'status-plus', '+');
+    plus.type = 'button';
+    plus.title = 'Add status';
+    plus.addEventListener('click', (e) => { e.stopPropagation(); openCreateStatus(); });
+    me.appendChild(plus);
+    me.appendChild(el('small', '', 'My status'));
+    strip.appendChild(me);
+
+    statusGroups.forEach((g, gi) => {
+        if (g.user.id === currentUser.id) return;
+        const it = el('div', 'status-item');
+        const ring = el('button', 'status-ring' + (g.all_viewed ? ' viewed' : ''));
+        ring.type = 'button';
+        ring.title = g.user.name;
+        ring.appendChild(makeAvatar(g.user.name, '', g.user.avatar));
+        ring.addEventListener('click', () => {
+            const first = g.statuses.findIndex(x => !x.viewed);          // na dekha theke shuru
+            openStatusViewer(gi, first === -1 ? 0 : first);
+        });
+        it.appendChild(ring);
+        it.appendChild(el('small', '', g.user.name.split(' ')[0]));
+        strip.appendChild(it);
+    });
+}
+
+// ---------- notun status ----------
+function openCreateStatus() {
+    const box = openModal('New status');
+    const form = el('div', 'group-form status-form');
+    let bg = STATUS_BGS[0];
+
+    const tabs = el('div', 'filter-chips');
+    const tText = el('button', 'chip active', 'Text');
+    const tMedia = el('button', 'chip', 'Photo / Video');
+    tText.type = tMedia.type = 'button';
+    tabs.appendChild(tText);
+    tabs.appendChild(tMedia);
+    form.appendChild(tabs);
+
+    // text
+    const textPane = el('div', 'status-text-pane');
+    const preview = el('textarea', 'status-preview');
+    preview.placeholder = 'Type a status...';
+    preview.maxLength = 700;
+    preview.style.background = bg;
+    textPane.appendChild(preview);
+    const colors = el('div', 'status-colors');
+    STATUS_BGS.forEach(c => {
+        const b = el('button', 'status-color' + (c === bg ? ' sel' : ''));
+        b.type = 'button';
+        b.style.background = c;
+        b.addEventListener('click', () => {
+            bg = c;
+            preview.style.background = c;
+            colors.querySelectorAll('.status-color').forEach(x => x.classList.toggle('sel', x === b));
+        });
+        colors.appendChild(b);
+    });
+    textPane.appendChild(colors);
+    form.appendChild(textPane);
+
+    // photo / video
+    const mediaPane = el('div', 'status-media-pane');
+    mediaPane.hidden = true;
+    const file = el('input');
+    file.type = 'file';
+    file.accept = 'image/*,video/*';
+    const note = el('small', 'muted-note', 'Photo up to 10 MB, video up to 50 MB. Statuses disappear after 24 hours.');
+    const prog = el('small', 'muted-note');
+    mediaPane.appendChild(file);
+    mediaPane.appendChild(note);
+    mediaPane.appendChild(prog);
+    form.appendChild(mediaPane);
+
+    tText.addEventListener('click', () => { tText.classList.add('active'); tMedia.classList.remove('active'); textPane.hidden = false; mediaPane.hidden = true; });
+    tMedia.addEventListener('click', () => { tMedia.classList.add('active'); tText.classList.remove('active'); textPane.hidden = true; mediaPane.hidden = false; });
+
+    const actions = el('div', 'fwd-actions');
+    const cancel = el('button', 'btn-sm ghost', 'Cancel');
+    cancel.type = 'button';
+    cancel.addEventListener('click', closeModal);
+    const post = el('button', 'btn-sm', 'Share status');
+    post.type = 'button';
+    post.addEventListener('click', async () => {
+        post.disabled = true;
+        try {
+            let body;
+            if (!textPane.hidden) {
+                if (!preview.value.trim()) { alert('Write something first.'); post.disabled = false; return; }
+                body = { type: 'text', text: preview.value.trim(), bg };
+            } else {
+                const f = file.files[0];
+                if (!f) { alert('Choose a photo or video.'); post.disabled = false; return; }
+                const kind = f.type.startsWith('video/') ? 'video' : (f.type.startsWith('image/') ? 'image' : null);
+                if (!kind) { alert('Please choose a photo or video.'); post.disabled = false; return; }
+                if (f.size > UPLOAD_LIMIT_MB[kind] * 1024 * 1024) { alert('File is too large. Max ' + UPLOAD_LIMIT_MB[kind] + ' MB.'); post.disabled = false; return; }
+                const sig = await postJSON('/api/upload/sign', { kind, size: f.size, name: f.name });
+                if (!sig.ok) throw new Error(sig.message || 'Upload not allowed');
+                const fd = new FormData();
+                fd.append('file', f);
+                Object.entries(sig.fields).forEach(([k, v]) => fd.append(k, v));
+                const result = await xhrUpload(sig.uploadUrl, fd, { setProgress(p) { prog.textContent = p < 100 ? 'Uploading ' + p + '%' : 'Sharing...'; } });
+                body = { type: kind, url: result.secure_url, public_id: result.public_id };
+            }
+            const r = await postJSON('/api/statuses', body);
+            if (!r.ok) throw new Error(r.message || 'Could not share status');
+            closeModal();
+            showToast('Status', 'Shared ✓ (visible to friends for 24 hours)');
+            loadStatuses();
+        } catch (err) { console.error(err); alert(err.message); post.disabled = false; prog.textContent = ''; }
+    });
+    actions.appendChild(cancel);
+    actions.appendChild(post);
+    form.appendChild(actions);
+    box.appendChild(form);
+    preview.focus();
+}
+
+// ---------- status dekha (full screen) ----------
+let sv = null;      // { gi, si, timer, start, dur, paused, el }
+
+function closeStatusViewer() {
+    if (!sv) return;
+    clearTimeout(sv.timer);
+    cancelAnimationFrame(sv.raf);
+    sv.el.remove();
+    sv = null;
+    loadStatuses();
+}
+
+function openStatusViewer(gi, si) {
+    closeStatusViewer();
+    const ov = el('div', 'status-viewer');
+    document.body.appendChild(ov);
+    sv = { gi, si, timer: null, raf: 0, start: 0, dur: 5000, elapsed: 0, paused: false, el: ov };
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeStatusViewer(); });
+    showStatus();
+}
+
+function showStatus() {
+    if (!sv) return;
+    const g = statusGroups[sv.gi];
+    if (!g) { closeStatusViewer(); return; }
+    const st = g.statuses[sv.si];
+    if (!st) { nextStatusGroup(); return; }
+    const own = g.user.id === currentUser.id;
+    const ov = sv.el;
+    ov.innerHTML = '';
+    clearTimeout(sv.timer);
+    cancelAnimationFrame(sv.raf);
+
+    const frame = el('div', 'sv-frame');
+    // upore progress bar
+    const bars = el('div', 'sv-bars');
+    g.statuses.forEach((_, i) => {
+        const b = el('span', 'sv-bar');
+        const fill = el('i');
+        fill.style.width = i < sv.si ? '100%' : '0%';
+        b.appendChild(fill);
+        bars.appendChild(b);
+    });
+    frame.appendChild(bars);
+
+    const head = el('div', 'sv-head');
+    head.appendChild(makeAvatar(g.user.name, '', g.user.avatar));
+    const who = el('div', 'sv-who');
+    who.appendChild(el('strong', '', own ? 'My status' : g.user.name));
+    who.appendChild(el('small', '', timeAgo(st.created_at)));
+    head.appendChild(who);
+    const x = el('button', 'sv-x', '✕');
+    x.type = 'button';
+    x.addEventListener('click', closeStatusViewer);
+    head.appendChild(x);
+    frame.appendChild(head);
+
+    const content = el('div', 'sv-content');
+    let video = null;
+    if (st.type === 'text') {
+        content.classList.add('sv-text');
+        content.style.background = st.bg || STATUS_BGS[0];
+        appendMessageText(content, st.text || '');
+    } else if (st.type === 'image') {
+        const img = el('img', 'sv-media');
+        img.src = cldUrl(st.media_url, 'c_limit,w_1080,q_auto,f_auto');
+        img.alt = '';
+        content.appendChild(img);
+    } else {
+        video = document.createElement('video');
+        video.className = 'sv-media';
+        video.src = cldUrl(st.media_url, 'q_auto', 'mp4');
+        video.playsInline = true;
+        video.autoplay = true;
+        content.appendChild(video);
+    }
+    frame.appendChild(content);
+
+    // baame tap = ager, daane = porer; chepe dhorle thame
+    const prevZone = el('button', 'sv-zone sv-prev');
+    const nextZone = el('button', 'sv-zone sv-next');
+    prevZone.type = nextZone.type = 'button';
+    prevZone.setAttribute('aria-label', 'Previous');
+    nextZone.setAttribute('aria-label', 'Next');
+    prevZone.addEventListener('click', () => { if (sv.si > 0) { sv.si--; showStatus(); } else if (sv.gi > 0) { sv.gi--; sv.si = 0; showStatus(); } });
+    nextZone.addEventListener('click', () => advanceStatus());
+    [prevZone, nextZone].forEach(z => {
+        z.addEventListener('pointerdown', () => pauseStatus(true));
+        z.addEventListener('pointerup', () => pauseStatus(false));
+        z.addEventListener('pointerleave', () => pauseStatus(false));
+    });
+    frame.appendChild(prevZone);
+    frame.appendChild(nextZone);
+
+    if (own) {
+        const foot = el('div', 'sv-foot');
+        const views = el('button', 'sv-btn', (st.view_count || 0) + ' views');
+        views.type = 'button';
+        views.addEventListener('click', () => showStatusViewers(st));
+        const del = el('button', 'sv-btn', 'Delete');
+        del.type = 'button';
+        del.addEventListener('click', async () => {
+            if (!confirm('Delete this status?')) return;
+            const r = await postJSON('/api/statuses/' + st.id + '/delete', {});
+            if (!r.ok) { alert(r.message || 'Could not delete.'); return; }
+            g.statuses.splice(sv.si, 1);
+            if (!g.statuses.length) closeStatusViewer(); else { if (sv.si >= g.statuses.length) sv.si = g.statuses.length - 1; showStatus(); }
+        });
+        foot.appendChild(views);
+        foot.appendChild(del);
+        frame.appendChild(foot);
+    } else if (!st.viewed) {
+        st.viewed = true;
+        postJSON('/api/statuses/' + st.id + '/view', {}).catch(() => {});
+    }
+    ov.appendChild(frame);
+
+    // koto khon dekhabe: lekha/chhobi 5 sec, video tar dorghotto (max 30 sec)
+    sv.elapsed = 0;
+    sv.paused = false;
+    const fill = bars.children[sv.si].firstChild;
+    const startTimer = (dur) => {
+        sv.dur = dur;
+        sv.start = performance.now();
+        const tick = () => {
+            if (!sv) return;
+            if (!sv.paused) {
+                const t = sv.elapsed + (performance.now() - sv.start);
+                fill.style.width = Math.min(100, t / sv.dur * 100) + '%';
+                if (t >= sv.dur) { advanceStatus(); return; }
+            }
+            sv.raf = requestAnimationFrame(tick);
+        };
+        sv.raf = requestAnimationFrame(tick);
+    };
+    sv.video = video;
+    if (video) {
+        video.addEventListener('loadedmetadata', () => startTimer(Math.min(30000, (video.duration || 5) * 1000)), { once: true });
+        video.addEventListener('error', () => startTimer(5000), { once: true });
+    } else startTimer(5000);
+}
+
+function pauseStatus(on) {
+    if (!sv || sv.paused === on) return;
+    if (on) { sv.elapsed += performance.now() - sv.start; sv.paused = true; if (sv.video) sv.video.pause(); }
+    else { sv.start = performance.now(); sv.paused = false; if (sv.video) sv.video.play().catch(() => {}); }
+}
+
+function advanceStatus() {
+    if (!sv) return;
+    const g = statusGroups[sv.gi];
+    if (g && sv.si < g.statuses.length - 1) { sv.si++; showStatus(); }
+    else nextStatusGroup();
+}
+
+function nextStatusGroup() {
+    if (!sv) return;
+    // amar status shesh hole bondho; onner hole porer manush
+    if (statusGroups[sv.gi] && statusGroups[sv.gi].user.id === currentUser.id) { closeStatusViewer(); return; }
+    const next = statusGroups.findIndex((g, i) => i > sv.gi && g.user.id !== currentUser.id);
+    if (next === -1) { closeStatusViewer(); return; }
+    sv.gi = next;
+    sv.si = 0;
+    showStatus();
+}
+
+async function showStatusViewers(st) {
+    pauseStatus(true);
+    let data;
+    try { data = await request('/api/statuses/' + st.id + '/viewers'); } catch (e) { data = {}; }
+    const list = data.viewers || [];
+    const panel = el('div', 'sv-viewers');
+    panel.appendChild(el('strong', '', 'Viewed by ' + list.length));
+    if (!list.length) panel.appendChild(el('small', '', 'No views yet.'));
+    list.forEach(v => {
+        const r = el('div', 'sv-viewer');
+        r.appendChild(makeAvatar(v.name, 'tiny', v.avatar));
+        r.appendChild(el('span', '', v.name));
+        r.appendChild(el('small', '', timeAgo(v.viewed_at)));
+        panel.appendChild(r);
+    });
+    const close = el('button', 'sv-btn', 'Close');
+    close.type = 'button';
+    close.addEventListener('click', () => { panel.remove(); pauseStatus(false); });
+    panel.appendChild(close);
+    if (sv) sv.el.querySelector('.sv-frame').appendChild(panel);
 }
 
 // =====================================================
@@ -1732,16 +3203,16 @@ async function refreshPushButton(btn) {
     const setLabel = (text, disabled) => { btn.textContent = text; btn.disabled = !!disabled; };
     if (!pushSupported()) {
         const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-        setLabel(ios ? '🔔 Notifications: install the app first (Share → Add to Home Screen)' : '🔔 Notifications not supported in this browser', true);
+        setLabel(ios ? 'Notifications: install the app first (Share → Add to Home Screen)' : 'Notifications are not supported in this browser', true);
         return;
     }
     const cfg = await getConfig();
-    if (!cfg.vapidPublicKey) { setLabel('🔔 Notifications are not set up on the server yet', true); return; }
+    if (!cfg.vapidPublicKey) { setLabel('Notifications are not set up on the server yet', true); return; }
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     const on = Notification.permission === 'granted' && !!sub;
-    if (Notification.permission === 'denied') { setLabel('🔕 Notifications blocked (allow them in browser settings)', true); return; }
-    setLabel(on ? '🔔 Notifications: ON (tap to turn off)' : '🔕 Notifications: OFF (tap to turn on)');
+    if (Notification.permission === 'denied') { setLabel('Notifications blocked (allow them in browser settings)', true); return; }
+    setLabel(on ? 'Notifications are on (tap to turn off)' : 'Notifications are off (tap to turn on)');
     btn.onclick = async () => {
         btn.disabled = true;
         try {
@@ -2142,6 +3613,10 @@ function groupMenuItems() {
         { label: 'ℹ️ Group info', action: () => openGroupInfo(activeChat.id) },
         { label: g && g.muted ? '🔔 Unmute notifications' : '🔕 Mute notifications', action: () => setGroupMute(activeChat.id, !(g && g.muted)) },
         { label: '📊 Create poll', action: () => openCreatePoll(activeChat.id) },
+        { label: '⏳ Disappearing messages', action: openChatTimer },
+        { label: '🎨 Wallpaper', action: openWallpaper },
+        { label: '⏰ Schedule message', action: openSchedule },
+        { label: '📤 Export chat', action: exportChat },
         { label: '🚪 Leave group', action: () => leaveGroup(activeChat.id), danger: true }
     ];
 }
@@ -2421,7 +3896,7 @@ async function openGroupInfo(groupId) {
     // ---- Group Admin Permissions (shudhu admin) ----
     if (isAdmin) {
         const set = el('div', 'group-settings');
-        set.appendChild(el('div', 'count-note', '⚙️ Admin settings'));
+        set.appendChild(el('div', 'count-note', 'Admin settings'));
         const opt = (key, label) => {
             const row = el('div', 'setting-line');
             row.appendChild(el('span', '', label));
@@ -2518,13 +3993,42 @@ function lastSeenText(ts) {
 }
 
 // choto menu (message er ⋯ menu er moto dekhte)
+// menu er lekhar shuru te emoji thakle seta soriye line-icon boshai
+function menuIconFor(text) {
+    const t = text.toLowerCase();
+    const rules = [
+        [/^reply/, 'reply'], [/^forward/, 'forward'], [/^copy/, 'copy'], [/^edit/, 'pencil'],
+        [/^unpin/, 'pin'], [/^pin/, 'pin'], [/^unsave|^save/, 'star'], [/^seen by/, 'eye'],
+        [/^unsend/, 'undo'], [/^delete/, 'trash'], [/unmute/, 'bell'], [/mute/, 'bellOff'],
+        [/unarchive/, 'upload'], [/archive/, 'archive'], [/disappearing/, 'timer'], [/wallpaper/, 'palette'],
+        [/schedule/, 'clock'], [/export/, 'download'], [/poll/, 'poll'], [/leave/, 'door'],
+        [/view profile|profile/, 'user'], [/report/, 'flag'], [/unblock/, 'block'], [/block/, 'block'],
+        [/remove as admin/, 'userMinus'], [/make admin/, 'crown'], [/remove friend|remove from group/, 'userMinus'],
+        [/add member/, 'userPlus'], [/group info/, 'info'], [/location/, 'mapPin'], [/photo|video|file/, 'image'],
+        [/members/, 'users'], [/close/, 'x']
+    ];
+    const hit = rules.find(([re]) => re.test(t));
+    return hit ? hit[1] : null;
+}
+function stripLeadingEmoji(label) {
+    return String(label).replace(/^[^\p{L}\p{N}]+/u, '').trim() || String(label);
+}
+function menuItemButton(item) {
+    const text = stripLeadingEmoji(item.label);
+    const b = el('button', 'msg-menu-item' + (item.danger ? ' danger' : ''));
+    b.type = 'button';
+    const name = menuIconFor(text);
+    if (name) b.appendChild(icon(name, 'mi'));
+    b.appendChild(el('span', '', text));
+    return b;
+}
+
 function openActionMenu(anchor, items) {
     closeMsgMenu();
     menuOpenedAt = Date.now();
     msgMenu = el('div', 'msg-menu');
     items.forEach(item => {
-        const b = el('button', 'msg-menu-item' + (item.danger ? ' danger' : ''), item.label);
-        b.type = 'button';
+        const b = menuItemButton(item);
         b.addEventListener('click', (e) => { e.stopPropagation(); closeMsgMenu(); item.action(); });
         msgMenu.appendChild(b);
     });
@@ -2615,10 +4119,8 @@ function openModal(title) {
     overlay.id = 'modalOverlay';
     const box = el('div', 'fwd-box modal-box');
     const head = el('div', 'modal-head');
-    head.appendChild(el('h3', '', title));
-    const x = el('button', 'icon-btn', '✕');
-    x.type = 'button';
-    x.title = 'Close';
+    head.appendChild(el('h3', '', stripLeadingEmoji(title)));
+    const x = iconBtn('icon-btn', 'x', 'Close');
     x.addEventListener('click', closeModal);
     head.appendChild(x);
     box.appendChild(head);
@@ -2806,6 +4308,9 @@ function fileIcon(name) {
 }
 
 function attachLabel(type, name) {
+    if (type === 'gif') return '🎞️ GIF';
+    if (type === 'sticker') return '🧸 Sticker';
+    if (type === 'location') return '📍 Location';
     if (type === 'image') return '📷 Photo';
     if (type === 'video') return '🎬 Video';
     if (type === 'audio') return (name || '').startsWith('voice-') ? '🎤 Voice message' : '🎵 Audio';
@@ -2834,6 +4339,30 @@ function downloadUrl(msg) {
 function renderAttachment(msg) {
     const type = msg.attachment_type;
     const wrap = el('div', 'att');
+
+    // Sticker: boro 3D chhobi, bubble chhara
+    if (type === 'sticker') {
+        const img = el('img', 'att-sticker');
+        img.src = msg.attachment_url;
+        img.alt = 'Sticker';
+        wrap.appendChild(img);
+        return wrap;
+    }
+    // Location: chhoto map + Google Maps e kholar link
+    if (type === 'location') {
+        wrap.appendChild(locationCard(msg.attachment_name));
+        return wrap;
+    }
+    // GIF: shudhu chhobi (Tenor / GIPHY theke)
+    if (type === 'gif') {
+        const img = el('img', 'att-gif');
+        img.src = msg.attachment_url;
+        img.alt = msg.attachment_name || 'GIF';
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        wrap.appendChild(img);
+        return wrap;
+    }
 
     if (type === 'image') {
         const img = el('img', 'att-img');
@@ -3122,29 +4651,36 @@ function setupFileSharing() {
     picker.addEventListener('change', () => { handleFiles(picker.files); picker.value = ''; });
     composer.appendChild(picker);
 
-    const attach = el('button', 'tool-btn', '📎');
-    attach.type = 'button';
-    attach.title = 'Send photo, video or file';
-    attach.setAttribute('aria-label', 'Attach file');
-    attach.addEventListener('click', () => picker.click());
+    const attach = iconBtn('tool-btn', 'paperclip', 'Attach');
+    attach.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openActionMenu(attach, [
+            { label: '📷 Photo, video or file', action: () => picker.click() },
+            { label: '📍 Share my location', action: shareLocation }
+        ]);
+    });
     composer.insertBefore(attach, input);
 
     // 📊 poll (shudhu group e dekhabe)
-    const pollBtn = el('button', 'tool-btn poll-btn', '📊');
-    pollBtn.type = 'button';
-    pollBtn.title = 'Create a poll';
-    pollBtn.setAttribute('aria-label', 'Create poll');
+    const pollBtn = iconBtn('tool-btn poll-btn', 'poll', 'Create a poll');
     pollBtn.hidden = true;
     pollBtn.addEventListener('click', () => { if (isGroupChat()) openCreatePoll(activeChat.id); });
     composer.insertBefore(pollBtn, input);
 
     setupMentions(input);
 
+    // 🎞️ GIF (server e key thakle dekhabe)
+    const gifBtn = el('button', 'tool-btn gif-btn', 'GIF');
+    gifBtn.type = 'button';
+    gifBtn.title = 'Send a GIF';
+    gifBtn.setAttribute('aria-label', 'Send GIF');
+    gifBtn.hidden = true;
+    gifBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleGifPanel(gifBtn); });
+    composer.insertBefore(gifBtn, input);
+    getConfig().then(cfg => { gifBtn.hidden = !cfg.gifEnabled; });
+
     // 🎤 voice
-    const mic = el('button', 'tool-btn mic-btn', '🎤');
-    mic.type = 'button';
-    mic.title = 'Record voice message';
-    mic.setAttribute('aria-label', 'Record voice message');
+    const mic = iconBtn('tool-btn mic-btn', 'mic', 'Record voice message');
     mic.addEventListener('click', startRecording);
     composer.insertBefore(mic, input.nextSibling);
 
@@ -3156,14 +4692,15 @@ function setupFileSharing() {
     const t = el('span', 'rec-time', '0:00');
     t.id = 'recTime';
     rec.appendChild(t);
-    rec.appendChild(el('span', 'rec-label', 'Recording...'));
-    const cancel = el('button', 'tool-btn', '✕');
-    cancel.type = 'button';
-    cancel.title = 'Cancel';
+    // chhoto shobdo-tor (waveform)
+    const wave = el('span', 'rec-label');
+    const bars = el('span', 'rec-wave');
+    for (let i = 0; i < 18; i++) bars.appendChild(el('i'));
+    wave.appendChild(bars);
+    rec.appendChild(wave);
+    const cancel = iconBtn('tool-btn', 'trash', 'Delete recording');
     cancel.addEventListener('click', () => stopRecording(true));
-    const send = el('button', 'rec-send', '➤');
-    send.type = 'button';
-    send.title = 'Send voice message';
+    const send = iconBtn('rec-send', 'send', 'Send voice message');
     send.addEventListener('click', () => stopRecording(false));
     rec.appendChild(cancel);
     rec.appendChild(send);
@@ -3185,7 +4722,7 @@ function convoUrl(params) {
 
 // protita message er "chhap": notun, seen, edit, unsend, pin, reaction - je kono bodlale key bodlabe
 function messagesKey(msgs) {
-    return msgs.map(m => [m.id, m.is_read, m.deleted_at ? 1 : 0, m.edited_at || '', m.pinned_at || '', m.saved ? 1 : 0,
+    return msgs.map(m => [m.id, m.is_read, m.seen_count === undefined ? '' : m.seen_count, m.deleted_at ? 1 : 0, m.edited_at || '', m.pinned_at || '', m.saved ? 1 : 0,
         m.poll ? m.poll.counts.join(',') + (m.poll.closed ? 'c' : '') + m.poll.mine.join('') : '',
         (m.reactions || []).map(r => r.user_id + r.reaction).join(',')].join('/')).join('|');
 }
@@ -3323,9 +4860,14 @@ function renderMessages(mode) {
             }
         }
         const edited = msg.edited_at && !msg.deleted_at ? 'edited · ' : '';
-        const pinMark = (msg.saved && !msg.deleted_at ? '⭐ ' : '') + (msg.pinned_at && !msg.deleted_at ? '📌 ' : '');
+        const pinMark = (msg.expires_at ? '⏳ ' : '') + (msg.saved && !msg.deleted_at ? '⭐ ' : '') + (msg.pinned_at && !msg.deleted_at ? '📌 ' : '');
         const time = el('span', 'time', isNaN(when) ? '' : pinMark + edited + fmtTime(when));
         if (isMe && !inGroup) time.appendChild(el('i', 'tick' + (msg.is_read ? ' seen' : ''), msg.is_read ? ' ✓✓' : ' ✓'));
+        // group: koto jon dekhechhe (👁 2)
+        if (isMe && inGroup && !msg.deleted_at && msg.seen_count !== null && msg.seen_count !== undefined) {
+            const all = msg.member_count && msg.seen_count >= msg.member_count;
+            time.appendChild(el('i', 'tick group-seen' + (msg.seen_count ? ' seen' : ''), msg.seen_count ? ' 👁 ' + (all ? 'all' : msg.seen_count) : ' ✓'));
+        }
         bubble.appendChild(time);
         // lekhay link thakle preview card (time er upore)
         const link = !msg.deleted_at && !msg.attachment_url && firstLink(msg.message);
@@ -3439,6 +4981,22 @@ function connectSocket() {
     });
 
     socket.on('chat-settings:changed', loadChatSettings);
+    socket.on('statuses:changed', loadStatuses);
+    // onno device theke ei session bondho kora hoyeche (ba account ban)
+    socket.on('session:revoked', () => {
+        localStorage.removeItem('user');
+        alert('You were logged out from this device.');
+        window.location.href = 'index.html';
+    });
+    socket.on('chat-timer:changed', (d) => {
+        if (!activeChat) return;
+        if ((d.type === 'g' && activeChat.isGroup && activeChat.id === d.id) || (d.type === 'u' && !activeChat.isGroup)) loadChatTimer();
+    });
+    socket.on('statuses:viewed', loadStatuses);
+    // group e keu porle "Seen by" update
+    socket.on('group:read', (d) => {
+        if (activeChat && activeChat.isGroup && activeChat.id === d.group_id) loadMessages(false);
+    });
 
     // group er nam / member / setting bodlale
     socket.on('groups:changed', (d) => {
@@ -3483,7 +5041,7 @@ function refreshChatHead() {
     if (activeChat.isGroup) {
         const typers = groupTypingNames(activeChat.id);
         const count = groupInfo ? groupInfo.members.length : activeChat.member_count;
-        sub.textContent = typers || (count ? count + ' members' : 'Group');
+        sub.textContent = typers || ((chatTimerSec ? '⏳ ' + timerText(chatTimerSec) + ' · ' : '') + (count ? count + ' members' : 'Group'));
         sub.className = typers ? 'typing-now' : '';
         $('chatDot').hidden = true;
         return;
@@ -3491,7 +5049,8 @@ function refreshChatHead() {
     const typing = !!typingFrom[activeChat.id];
     const isOn = online.has(activeChat.id);
     const fresh = friends.find(f => f.id === activeChat.id) || activeChat;     // notun last_seen
-    sub.textContent = typing ? 'typing...' : (isOn ? 'Online' : (lastSeenText(fresh.last_seen_at) || fresh.email || ''));
+    const base = typing ? 'typing...' : (isOn ? 'Online' : (lastSeenText(fresh.last_seen_at) || fresh.email || ''));
+    sub.textContent = (!typing && chatTimerSec ? '⏳ ' + timerText(chatTimerSec) + ' · ' : '') + base;
     sub.className = typing ? 'typing-now' : (isOn ? 'online-now' : '');
     $('chatDot').hidden = !isOn;
 }
@@ -3609,6 +5168,7 @@ function showToast(title, text, onClick) {
 }
 
 function beep() {
+    if (prefs.sound === false) return;          // Settings > Notifications > Message sound bondho
     try {
         audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
         const now = audioCtx.currentTime;

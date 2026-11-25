@@ -1,0 +1,507 @@
+/* =====================================================
+   TalkFav Landing — glassy green
+   Sob rong ekhane (ei :root er moddhe). Notun logo ashle shudhu
+   --emerald, --emerald-2, --teal bodlalei puro page bodlabe.
+   ===================================================== */
+:root {
+  /* brand (sobuj gradient) */
+  --emerald: #0E8F5B;
+  --emerald-2: #12B07A;
+  --teal: #0D9C94;
+  --grad: linear-gradient(120deg, var(--emerald) 0%, var(--emerald-2) 45%, var(--teal) 100%);
+  --grad-soft: linear-gradient(120deg, #6EE7B7 0%, #5EEAD4 100%);   /* gaarho pichone lekhar gradient */
+
+  /* page (light) */
+  --forest: #0B3D2E;
+  --mint: #D7F5E7;
+  --bg: #F5FBF8;
+  --surface: #FFFFFF;
+  --text: #10261E;
+  --text-soft: #4A6359;
+  --line: #DCEBE3;
+  --shadow: 0 1px 2px rgba(11, 61, 46, .06), 0 14px 34px -14px rgba(11, 61, 46, .2);
+
+  /* hero (sobsomoy gaarho) */
+  --hero-bg-1: #04261C;
+  --hero-bg-2: #083A2B;
+  --hero-text: #EAFBF3;
+  --hero-soft: #A8CFC0;
+
+  /* kach (glass) */
+  --glass: rgba(255, 255, 255, .09);
+  --glass-strong: rgba(255, 255, 255, .14);
+  --glass-line: rgba(255, 255, 255, .18);
+  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, .22);
+  --blur: blur(18px) saturate(140%);
+
+  --radius-xl: 32px;
+  --radius-lg: 24px;
+  --radius: 16px;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "DM Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+[data-theme="dark"] {
+  --forest: #DDF7EA;
+  --mint: #0F3A2C;
+  --bg: #05211A;
+  --surface: rgba(255, 255, 255, .05);
+  --text: #E4F5EC;
+  --text-soft: #9BBDAE;
+  --line: rgba(255, 255, 255, .1);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 18px 40px -18px rgba(0, 0, 0, .7);
+}
+
+/* ---------- base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--body); font-size: 17px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+img, svg { display: block; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--emerald-2); outline-offset: 3px; border-radius: 10px; }
+/* boro screen e page chowra hoy (dui pashe beshi khali jayga thake na), choto screen e 20px kore margin */
+.wrap { width: min(1520px, 90vw); margin-inline: auto; }
+@media (max-width: 700px) { .wrap { width: calc(100% - 40px); } }
+h1, h2, h3 { font-family: var(--display); color: var(--forest); margin: 0; letter-spacing: -0.02em; }
+h2 { font-size: clamp(30px, 4.2vw, 48px); line-height: 1.06; font-weight: 700; }
+h3 { font-size: 21px; line-height: 1.25; font-weight: 700; }
+p { margin: 0; }
+.skip { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--surface); padding: 10px 14px; border-radius: 10px; }
+.skip:focus { top: 12px; }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 52px; padding: 0 24px;
+  border-radius: 999px; font: 700 16px/1 var(--body); text-decoration: none; cursor: pointer; white-space: nowrap;
+  border: 1.5px solid transparent; transition: transform .15s ease, box-shadow .2s ease, background .2s, border-color .2s;
+}
+.btn:active { transform: scale(.98); }
+.btn svg { width: 19px; height: 19px; }
+.btn-primary { background: var(--grad); color: #fff; box-shadow: 0 10px 26px -10px rgba(18, 176, 122, .75); position: relative; overflow: hidden; isolation: isolate; }
+/* sobuj button e mouse rakhle alor jholok */
+.btn-primary::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; transform: translateX(-120%) skewX(-20deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent);
+}
+.btn-primary:hover::after { transition: transform .7s ease; transform: translateX(120%) skewX(-20deg); }
+.btn-primary:hover { box-shadow: 0 14px 34px -10px rgba(18, 176, 122, .95); }
+.btn-ghost { border-color: var(--line); color: var(--forest); background: var(--surface); }
+.btn-ghost:hover { border-color: var(--emerald); }
+.btn-glass { background: var(--glass); border-color: var(--glass-line); color: var(--hero-text); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur); }
+.btn-glass:hover { background: var(--glass-strong); }
+
+/* =====================================================
+   NAV (shuru te hero er upore kach; scroll korle page er rong)
+   ===================================================== */
+.nav { position: fixed; inset: 0 0 auto; z-index: 60; transition: background .25s, border-color .25s, box-shadow .25s; border-bottom: 1px solid transparent; }
+.nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 72px; gap: 16px; }
+.nav.on-dark { color: var(--hero-text); }
+.nav.solid {
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border-bottom-color: var(--line); color: var(--text);
+}
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 800 27px/1 var(--display); letter-spacing: -0.03em; color: inherit; }
+.nav.solid .brand { color: var(--forest); }
+/* LOGO: notun logo ashle ei box er bhitorer SVG / img bodlao */
+.brand-mark { width: 42px; height: 42px; display: grid; place-items: center; filter: drop-shadow(0 4px 10px rgba(18, 176, 122, .45)); }
+.brand-mark svg { width: 42px; height: 42px; }
+@media (max-width: 480px) { .brand { font-size: 23px; } .brand-mark, .brand-mark svg { width: 36px; height: 36px; } }
+.nav-links { display: flex; gap: 28px; font-weight: 500; font-size: 15px; }
+.nav-links a { text-decoration: none; opacity: .78; transition: opacity .15s; }
+.nav-links a:hover { opacity: 1; }
+.nav-actions { display: flex; align-items: center; gap: 10px; }
+.nav-actions .btn { height: 44px; padding: 0 18px; font-size: 15px; }
+.icon-btn {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  background: var(--glass); border: 1px solid var(--glass-line); color: inherit;
+}
+.nav.solid .icon-btn { background: var(--surface); border-color: var(--line); color: var(--forest); }
+.icon-btn svg { width: 20px; height: 20px; }
+.nav.on-dark .btn-ghost { background: var(--glass); border-color: var(--glass-line); color: var(--hero-text); }
+.menu-btn { display: none; }
+
+/* phone er menu */
+.mobile-menu {
+  position: fixed; inset: 72px 12px auto; z-index: 59; padding: 18px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--line); box-shadow: var(--shadow); display: grid; gap: 6px;
+}
+.mobile-menu a:not(.btn) { padding: 12px 10px; border-radius: 12px; text-decoration: none; font-weight: 500; color: var(--forest); }
+.mobile-menu a:not(.btn):hover { background: var(--mint); }
+.mobile-menu .btn { margin-top: 6px; }
+@media (max-width: 860px) {
+  .nav-links, .nav-actions .btn { display: none; }
+  .menu-btn { display: grid; }
+}
+
+/* =====================================================
+   HERO (gaarho sobuj + bhasoman alo + kach)
+   ===================================================== */
+.hero {
+  position: relative; overflow: hidden; color: var(--hero-text);
+  background: radial-gradient(120% 90% at 10% 0%, var(--hero-bg-2) 0%, var(--hero-bg-1) 60%);
+  padding: 140px 0 0;
+}
+.hero h1 { color: var(--hero-text); }
+
+/* pichoner 3 ta noram alo (khub dhire bhase) */
+.glow { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .55; pointer-events: none; will-change: transform; }
+.glow-a { width: clamp(420px, 34vw, 680px); height: clamp(420px, 34vw, 680px); left: -140px; top: -120px; background: #12B07A; animation: drift-a 26s ease-in-out infinite alternate; }
+.glow-b { width: clamp(380px, 30vw, 620px); height: clamp(380px, 30vw, 620px); right: -120px; top: 80px; background: #0D9C94; animation: drift-b 32s ease-in-out infinite alternate; }
+.glow-c { width: 380px; height: 380px; left: 40%; bottom: -200px; background: #7BD88F; opacity: .3; animation: drift-c 38s ease-in-out infinite alternate; }
+@keyframes drift-a { to { transform: translate(120px, 80px) scale(1.1); } }
+@keyframes drift-b { to { transform: translate(-90px, 60px) scale(.92); } }
+@keyframes drift-c { to { transform: translate(-120px, -40px) scale(1.15); } }
+/* halka "dana" texture, jate gradient e daag na pore */
+.hero::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: 1.1fr .9fr; gap: clamp(40px, 5vw, 96px); align-items: center; }
+.hero h1 { font-size: clamp(44px, 5.8vw, 104px); line-height: .98; font-weight: 800; letter-spacing: -0.045em; }
+.hero h1 .name { display: block; background: var(--grad-soft); -webkit-background-clip: text; background-clip: text; color: transparent; padding-bottom: .08em; }
+.hero-lead { margin: 24px 0 34px; color: var(--hero-soft); font-size: clamp(17px, 1.25vw, 21px); max-width: 32em; }
+.hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.hero-note { margin-top: 22px; color: var(--hero-soft); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
+.hero-note span { display: inline-flex; align-items: center; gap: 6px; }
+.hero-note svg { width: 16px; height: 16px; color: #6EE7B7; }
+
+/* kacher chat card */
+.chat-stage { position: relative; padding-bottom: 60px; width: 100%; max-width: 540px; margin-left: auto; }   /* card er soman chowra, tai pichoner panel char pashe soman */
+@media (max-width: 920px) { .chat-stage { margin-inline: auto; } }
+.glass {
+  background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--glass-shine), 0 30px 60px -30px rgba(0, 0, 0, .55);
+  backdrop-filter: var(--blur); -webkit-backdrop-filter: var(--blur);
+}
+.chat-card { border-radius: var(--radius-xl); padding: 18px; max-width: 540px; margin-left: auto; }
+.chat-head { display: flex; align-items: center; gap: 12px; padding: 4px 4px 14px; border-bottom: 1px solid var(--glass-line); }
+.av { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; font: 700 16px/1 var(--display); color: #fff; flex: none; position: relative; }
+.av-a { background: linear-gradient(135deg, #F59E0B, #F97316); }
+.av-b { background: linear-gradient(135deg, #6366F1, #8B5CF6); }
+.av-c { background: linear-gradient(135deg, #0EA5E9, #14B8A6); }
+.av.online::after { content: ""; position: absolute; right: 0; bottom: 0; width: 11px; height: 11px; border-radius: 50%; background: #34D399; border: 2px solid #0A3A2B; }
+.chat-head b { display: block; font-size: 16px; }
+.chat-head small { color: #6EE7B7; font-weight: 500; font-size: 13px; }
+.chat-head .icons { margin-left: auto; display: flex; gap: 8px; }
+.chat-head .icons span { width: 36px; height: 36px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; }
+.chat-head .icons svg { width: 18px; height: 18px; }
+.chat-body { display: flex; flex-direction: column; gap: 10px; padding: 16px 4px 6px; min-height: 300px; }
+.bubble { max-width: 78%; padding: 10px 14px; border-radius: 18px; font-size: 15px; line-height: 1.45; position: relative; }
+.bubble.them { background: var(--glass-strong); border: 1px solid var(--glass-line); border-bottom-left-radius: 6px; align-self: flex-start; }
+.bubble.me { background: var(--grad); color: #fff; border-bottom-right-radius: 6px; align-self: flex-end; box-shadow: 0 8px 20px -10px rgba(18, 176, 122, .8); }
+.bubble time { display: block; font-size: 11px; opacity: .7; margin-top: 2px; text-align: right; }
+.bubble .react { position: absolute; bottom: -12px; right: 10px; background: #0B3D2E; border: 1px solid var(--glass-line); border-radius: 999px; font-size: 13px; padding: 1px 7px; }
+.photo-bubble { padding: 6px; }
+.photo-bubble .pic {
+  width: 220px; max-width: 100%; height: 130px; border-radius: 14px; position: relative; overflow: hidden;
+  background: radial-gradient(circle at 72% 30%, #FDE68A 0 18px, transparent 19px), linear-gradient(170deg, #A7F3D0 0%, #34D399 50%, #059669 100%);
+}
+.photo-bubble .pic::after { content: ""; position: absolute; left: -10%; right: -10%; bottom: -34px; height: 84px; border-radius: 50%; background: #065F46; }
+.typing { align-self: flex-start; display: inline-flex; gap: 4px; padding: 12px 14px; border-radius: 18px; background: var(--glass-strong); border: 1px solid var(--glass-line); }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--hero-soft); animation: dot 1.2s infinite; }
+.typing i:nth-child(2) { animation-delay: .15s; }
+.typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes dot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+.chat-input { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 8px 8px 16px; border: 1px solid var(--glass-line); border-radius: 999px; color: var(--hero-soft); font-size: 14px; background: rgba(0, 0, 0, .12); }
+.chat-input .send { margin-left: auto; width: 38px; height: 38px; border-radius: 50%; background: var(--grad); display: grid; place-items: center; color: #fff; }
+.chat-input .send svg { width: 18px; height: 18px; }
+
+.call-float { position: absolute; left: -36px; bottom: 0; width: 256px; border-radius: 22px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+.call-float b { display: block; font-size: 15px; }
+.call-float small { color: var(--hero-soft); font-size: 12px; }
+.call-float .end { margin-left: auto; width: 38px; height: 38px; border-radius: 50%; background: #EF4444; display: grid; place-items: center; }
+.call-float .end svg { width: 18px; height: 18px; transform: rotate(135deg); }
+
+/* hero er niche: ek nojore 3 ta kaj */
+.glance {
+  position: relative; z-index: 1; display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 72px;
+  border-top: 1px solid var(--glass-line);
+}
+.glance div { padding: 28px 28px 34px 0; display: flex; gap: 14px; align-items: flex-start; }
+.glance div + div { padding-left: 28px; border-left: 1px solid var(--glass-line); }
+.glance .ico { width: 44px; height: 44px; border-radius: 14px; flex: none; display: grid; place-items: center; background: var(--glass-strong); border: 1px solid var(--glass-line); color: #6EE7B7; }
+.glance .ico svg { width: 22px; height: 22px; }
+.glance b { display: block; font: 700 18px/1.2 var(--display); color: var(--hero-text); }
+.glance span { color: var(--hero-soft); font-size: 15px; }
+
+@media (max-width: 920px) {
+  .hero { padding-top: 112px; }
+  .hero-grid { grid-template-columns: 1fr; }
+  .chat-card { margin: 0 auto; }
+  .call-float { left: 0; }
+  .glance { grid-template-columns: 1fr; margin-top: 40px; }
+  .glance div, .glance div + div { padding: 20px 0; border-left: none; }
+  .glance div + div { border-top: 1px solid var(--glass-line); }
+}
+@media (max-width: 640px) {
+  .glow { filter: blur(50px); }
+  .glass, .btn-glass, .nav.solid, .mobile-menu { --blur: blur(10px); }     /* durbol phone e halka blur */
+}
+
+/* page khule chat er bubble gulo ekbar kore ashe */
+.reveal { opacity: 0; transform: translateY(10px) scale(.98); }
+.play .reveal { animation: pop .45s cubic-bezier(.2, .8, .2, 1) forwards; }
+@keyframes pop { to { opacity: 1; transform: none; } }
+
+/* =====================================================
+   SECTIONS
+   ===================================================== */
+section { padding: 100px 0; }
+.sec-head { max-width: 660px; margin-bottom: 48px; }
+.sec-head p { color: var(--text-soft); margin-top: 16px; font-size: 18px; }
+.center { text-align: center; margin-inline: auto; }
+
+/* ---------- feature bento ---------- */
+.bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 26px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; box-shadow: var(--shadow); }
+.tile p { color: var(--text-soft); font-size: 15.5px; }
+.t-chat, .t-call { grid-column: span 3; }
+.t-group, .t-status, .t-files { grid-column: span 2; }
+.t-privacy { grid-column: span 4; }
+.t-more { grid-column: span 2; }
+.t-call { background: radial-gradient(120% 120% at 0% 0%, #0E4A37 0%, #062C21 70%); border-color: transparent; color: var(--hero-text); }
+.t-call h3 { color: var(--hero-text); }
+.t-call p { color: var(--hero-soft); }
+.t-more { background: var(--grad); border-color: transparent; }
+.t-more h3 { color: #fff; }
+@media (max-width: 900px) { .t-chat, .t-call, .t-privacy { grid-column: span 6; } .t-group, .t-status, .t-files, .t-more { grid-column: span 3; } }
+@media (max-width: 600px) { .bento > * { grid-column: span 6 !important; } }
+.demo { margin-top: auto; padding-top: 14px; }
+
+.mini-react { display: flex; gap: 8px; flex-wrap: wrap; }
+.mini-react span { padding: 6px 12px; border-radius: 999px; background: var(--mint); color: var(--forest); font-size: 14px; font-weight: 500; }
+.mini-call { display: flex; align-items: center; gap: 14px; }
+.mini-call .ring { width: 64px; height: 64px; border-radius: 50%; background: rgba(255, 255, 255, .1); display: grid; place-items: center; animation: ring 2.4s ease-out infinite; }
+.mini-call .ring .av { width: 48px; height: 48px; }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(110, 231, 183, .45); } 100% { box-shadow: 0 0 0 18px rgba(110, 231, 183, 0); } }
+.mini-call .btns { display: flex; gap: 10px; margin-left: auto; }
+.mini-call .btns span { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .14); color: #fff; }
+.mini-call .btns .accept { background: #22C55E; }
+.mini-call .btns svg { width: 20px; height: 20px; }
+.mini-group { display: flex; align-items: center; }
+.mini-group .av { width: 40px; height: 40px; margin-left: -10px; border: 3px solid var(--bg); font-size: 14px; }
+.mini-group .av:first-child { margin-left: 0; }
+.mini-group em { margin-left: 10px; font-style: normal; font-size: 14px; color: var(--text-soft); }
+.mini-status { display: flex; gap: 12px; }
+.mini-status .ring { width: 52px; height: 52px; border-radius: 50%; padding: 3px; background: var(--grad); }
+.mini-status .ring.seen { background: var(--line); }
+.mini-status .ring .av { width: 100%; height: 100%; border: 3px solid var(--bg); font-size: 14px; }
+.mini-files { display: flex; gap: 8px; flex-wrap: wrap; }
+.mini-files span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 12px; border: 1px solid var(--line); font-size: 13.5px; font-weight: 500; color: var(--forest); }
+.mini-files svg { width: 16px; height: 16px; color: var(--emerald); }
+.mini-privacy { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mini-privacy label { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); font-size: 14.5px; font-weight: 500; color: var(--forest); }
+.switch { width: 40px; height: 24px; border-radius: 999px; background: var(--emerald); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; }
+.switch.off { background: var(--line); }
+.switch.off::after { right: auto; left: 3px; }
+@media (max-width: 600px) { .mini-privacy { grid-template-columns: 1fr; } }
+.more-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 7px; font-size: 15px; color: #fff; }
+.more-list li { display: flex; gap: 8px; align-items: center; }
+.more-list svg { width: 16px; height: 16px; flex: none; }
+
+/* ---------- steps (asol 3 ta dhap) ---------- */
+.steps-band { background: var(--mint); border-radius: 40px; padding: 64px clamp(20px, 5vw, 64px); }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; counter-reset: s; }
+.step::before {
+  counter-increment: s; content: counter(s); display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%;
+  background: var(--surface); color: var(--emerald); font: 800 20px/1 var(--display); margin-bottom: 18px; border: 2px solid var(--emerald);
+}
+.step p { color: var(--text-soft); margin-top: 8px; font-size: 16px; }
+@media (max-width: 760px) { .steps { grid-template-columns: 1fr; } }
+
+/* ---------- install ---------- */
+.install { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+.install ul { list-style: none; padding: 0; margin: 26px 0 30px; display: grid; gap: 14px; }
+.install li { display: flex; gap: 12px; align-items: flex-start; color: var(--text-soft); }
+.install li b { color: var(--forest); }
+.check { width: 26px; height: 26px; border-radius: 50%; background: var(--mint); color: var(--emerald); display: grid; place-items: center; flex: none; }
+.check svg { width: 15px; height: 15px; }
+.phone { width: 260px; height: 520px; margin: 0 auto; border-radius: 42px; background: #062C21; padding: 12px; box-shadow: var(--shadow); position: relative; }
+.phone-screen {
+  width: 100%; height: 100%; border-radius: 32px; padding: 46px 22px; display: grid; grid-template-columns: repeat(4, 1fr); align-content: start; gap: 20px 12px;
+  background: radial-gradient(120% 80% at 20% 0%, #12B07A 0%, #0D9C94 45%, #064E3B 100%);
+}
+.app-ico { aspect-ratio: 1; border-radius: 14px; background: rgba(255, 255, 255, .2); backdrop-filter: blur(6px); }
+.app-ico.tf { background: #fff; display: grid; place-items: center; box-shadow: 0 8px 18px -6px rgba(0, 0, 0, .35); }
+.app-ico.tf svg { width: 60%; height: 60%; }
+@media (max-width: 860px) { .install { grid-template-columns: 1fr; } .phone { width: 220px; height: 440px; } }
+
+/* ---------- tech ---------- */
+.tech { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.tech span { padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-weight: 500; font-size: 15px; color: var(--forest); }
+
+/* ---------- faq ---------- */
+.faq { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
+.faq details { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 4px 22px; }
+.faq summary { cursor: pointer; list-style: none; padding: 18px 0; font: 700 18px/1.3 var(--display); color: var(--forest); display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-size: 26px; line-height: .8; color: var(--emerald); transition: transform .2s; }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { color: var(--text-soft); padding-bottom: 20px; }
+
+/* ---------- final CTA (gaarho + kach) ---------- */
+.cta {
+  position: relative; overflow: hidden; border-radius: 40px; padding: 76px clamp(20px, 6vw, 80px); color: var(--hero-text);
+  background: radial-gradient(120% 120% at 100% 0%, #0E4A37 0%, var(--hero-bg-1) 65%);
+}
+.cta .glow-a { left: auto; right: -120px; top: -220px; width: 520px; height: 520px; background: #12B07A; opacity: .35; filter: blur(90px); }
+.cta .glow-b { right: auto; left: -140px; top: auto; bottom: -280px; width: 480px; height: 480px; background: #0D9C94; opacity: .3; filter: blur(90px); }
+.cta-card { position: relative; z-index: 1; display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; align-items: center; border-radius: var(--radius-xl); padding: 40px clamp(20px, 4vw, 48px); }
+.cta h2 { color: var(--hero-text); }
+.cta p { color: var(--hero-soft); margin-top: 14px; font-size: 18px; }
+.cta .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+@media (max-width: 760px) { .cta-card { grid-template-columns: 1fr; } .cta .actions { justify-content: flex-start; } }
+
+/* ---------- footer ---------- */
+footer { padding: 40px 0 56px; color: var(--text-soft); font-size: 15px; }
+footer .wrap { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 32px; }
+footer nav { display: flex; gap: 22px; flex-wrap: wrap; }
+footer a { text-decoration: none; }
+footer a:hover { color: var(--forest); }
+
+/* je kom animation chay tar jonno sob thir */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .glow, .typing i, .mini-call .ring { animation: none; }
+  .reveal { opacity: 1; transform: none; }
+  .play .reveal { animation: none; }
+}
+
+
+/* =====================================================
+   PATA (leaf) - dui mode e, khub dhire dole
+   ===================================================== */
+.leaf { position: absolute; pointer-events: none; fill: none; stroke: #6EE7B7; stroke-width: 1.4; opacity: .12; transform-origin: 50% 100%; animation: sway 9s ease-in-out infinite alternate; }
+.leaf-1 { width: 170px; height: 270px; left: -40px; top: 120px; transform: rotate(-24deg); animation-duration: 10s; }
+.leaf-2 { width: 120px; height: 190px; left: 34%; top: 40px; transform: rotate(16deg); opacity: .08; animation-duration: 12s; }
+.leaf-3 { width: 210px; height: 330px; right: -60px; top: -40px; transform: rotate(28deg); animation-duration: 11s; }
+.leaf-4 { width: 140px; height: 220px; right: 30%; bottom: 40px; transform: rotate(-12deg); opacity: .07; animation-duration: 13s; }
+.leaf-5 { width: 150px; height: 240px; left: 8%; bottom: -60px; transform: rotate(8deg); opacity: .09; animation-duration: 14s; }
+@keyframes sway { from { rotate: -3deg; } to { rotate: 3deg; } }
+@media (max-width: 760px) { .leaf-2, .leaf-4 { display: none; } }
+
+/* mouse er sathe noram alo (shudhu computer e) */
+.glow-mouse {
+  width: 420px; height: 420px; left: 0; top: 0; opacity: 0; background: #34D399; filter: blur(90px);
+  transform: translate(calc(var(--mx, 50vw) - 210px), calc(var(--my, 300px) - 210px)); transition: opacity .6s;
+}
+.hero.mouse-on .glow-mouse { opacity: .28; }
+
+/* chat: typing chinho ta sesh message ashar age chole jay */
+.play .typing-once { animation: pop .45s cubic-bezier(.2, .8, .2, 1) 3.5s forwards, vanish .3s ease 4.7s forwards; }
+@keyframes vanish { to { opacity: 0; height: 0; padding-top: 0; padding-bottom: 0; margin-top: -10px; border-width: 0; } }
+.bubble .react { bottom: -13px; }
+
+/* =====================================================
+   LIGHT MODE: Hero sada, kintu chat er pichone gaarho sobuj panel
+   ===================================================== */
+[data-theme="light"] .hero { background: radial-gradient(120% 90% at 0% 0%, #E6F8EF 0%, #F5FBF8 55%, #FFFFFF 100%); color: var(--text); }
+[data-theme="light"] .hero h1 { color: var(--forest); }
+[data-theme="light"] .hero h1 .name { background: var(--grad); -webkit-background-clip: text; background-clip: text; }
+[data-theme="light"] .hero-lead { color: var(--text-soft); }
+[data-theme="light"] .hero-note { color: var(--text-soft); }
+[data-theme="light"] .hero-note svg { color: var(--emerald); }
+[data-theme="light"] .hero .btn-glass { background: #fff; border-color: var(--line); color: var(--forest); }
+[data-theme="light"] .hero .btn-glass:hover { border-color: var(--emerald); }
+[data-theme="light"] .hero .glow-a { background: #A7F3D0; opacity: .55; }
+[data-theme="light"] .hero .glow-b { background: #99F6E4; opacity: .45; }
+[data-theme="light"] .hero .glow-c { background: #BBF7D0; opacity: .4; }
+[data-theme="light"] .glow-mouse { background: #6EE7B7; }
+[data-theme="light"] .hero.mouse-on .glow-mouse { opacity: .35; }
+[data-theme="light"] .hero::after { opacity: .03; }
+[data-theme="light"] .leaf { stroke: #0E8F5B; opacity: .11; }
+[data-theme="light"] .leaf-2, [data-theme="light"] .leaf-4 { opacity: .07; }
+[data-theme="light"] .glance { border-top-color: var(--line); }
+[data-theme="light"] .glance div + div { border-left-color: var(--line); }
+[data-theme="light"] .glance .ico { background: var(--mint); border-color: var(--line); color: var(--emerald); }
+[data-theme="light"] .glance b { color: var(--forest); }
+[data-theme="light"] .glance span { color: var(--text-soft); }
+@media (max-width: 920px) {
+  [data-theme="light"] .glance div + div { border-top-color: var(--line); }
+}
+/* light mode e hero er upore nav er lekha gaarho */
+[data-theme="light"] .nav:not(.solid) { color: var(--forest); }
+[data-theme="light"] .nav:not(.solid) .icon-btn { background: rgba(255, 255, 255, .7); border-color: var(--line); color: var(--forest); }
+
+/* =====================================================
+   SCROLL e bhese otha (shudhu prothombar)
+   ===================================================== */
+.js [data-reveal] { opacity: 0; transform: translateY(26px); transition: opacity .8s ease, transform .8s cubic-bezier(.2, .8, .2, 1); }
+.js [data-reveal].in { opacity: 1; transform: none; }
+.bento [data-reveal]:nth-child(2) { transition-delay: .08s; }
+.bento [data-reveal]:nth-child(3) { transition-delay: .04s; }
+.bento [data-reveal]:nth-child(4) { transition-delay: .12s; }
+.bento [data-reveal]:nth-child(5) { transition-delay: .2s; }
+.bento [data-reveal]:nth-child(6) { transition-delay: .06s; }
+.bento [data-reveal]:nth-child(7) { transition-delay: .14s; }
+
+/* feature card gulo jibonto (chokher samne ashle) */
+.js .mini-react span { opacity: 0; transform: scale(.4); }
+.in .mini-react span { animation: popin .5s cubic-bezier(.3, 1.6, .5, 1) forwards; }
+.in .mini-react span:nth-child(1) { animation-delay: .5s; }
+.in .mini-react span:nth-child(2) { animation-delay: .7s; }
+.in .mini-react span:nth-child(3) { animation-delay: .9s; }
+.in .mini-react span:nth-child(4) { animation-delay: 1.1s; }
+@keyframes popin { to { opacity: 1; transform: scale(1); } }
+.mini-status .ring { position: relative; background: none; }
+.mini-status .ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(#0E8F5B, #6EE7B7, #0D9C94, #12B07A, #0E8F5B); }
+.mini-status .ring.seen::before { background: var(--line); }
+.in .mini-status .ring:not(.seen)::before { animation: spin 5s linear infinite; }
+.mini-status .ring .av { position: relative; }
+@keyframes spin { to { transform: rotate(1turn); } }
+.switch, .switch::after { transition: background .35s ease, left .35s ease, right .35s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .leaf, .in .mini-status .ring::before { animation: none; }
+  .js [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .js .mini-react span { opacity: 1; transform: none; }
+  .in .mini-react span { animation: none; }
+  .glow-mouse { display: none; }
+  .btn-primary:hover::after { transition: none; }
+  .play .typing-once { animation: none; display: none; }
+}
+
+
+/* =====================================================
+   LIGHT MODE: shudhu sada kach (pichone kono gaarho pot nei)
+   ===================================================== */
+[data-theme="light"] .glass {
+  background: rgba(255, 255, 255, .58); border-color: rgba(14, 143, 91, .16); color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95), 0 30px 70px -34px rgba(11, 61, 46, .35);
+}
+/* kacher pichone noram pudina alo, jate kach ta "kach" er moto dekhay */
+[data-theme="light"] .chat-stage::after {
+  content: ""; position: absolute; z-index: -1; inset: 8% 4% 18% 8%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(52, 211, 153, .45), rgba(45, 212, 191, .18) 60%, transparent);
+  filter: blur(30px); pointer-events: none;
+}
+[data-theme="light"] .chat-stage { isolation: isolate; }
+[data-theme="light"] .chat-head { border-bottom-color: var(--line); }
+[data-theme="light"] .chat-head b { color: var(--forest); }
+[data-theme="light"] .chat-head small { color: var(--emerald); }
+[data-theme="light"] .chat-head .icons span { background: var(--mint); color: var(--emerald); }
+[data-theme="light"] .av.online::after { border-color: #fff; }
+[data-theme="light"] .bubble.them { background: rgba(255, 255, 255, .85); border-color: var(--line); color: var(--text); }
+[data-theme="light"] .bubble .react { background: #fff; border-color: var(--line); color: var(--text); }
+[data-theme="light"] .typing { background: rgba(255, 255, 255, .85); border-color: var(--line); }
+[data-theme="light"] .typing i { background: var(--text-soft); }
+[data-theme="light"] .chat-input { background: rgba(255, 255, 255, .7); border-color: var(--line); color: var(--text-soft); }
+[data-theme="light"] .call-float b { color: var(--forest); }
+[data-theme="light"] .call-float small { color: var(--text-soft); }
+
+/* shesh CTA: light e gaarho pot nei, shudhu kach + noram alo */
+[data-theme="light"] .cta { background: none; padding: 30px 0; overflow: visible; }
+[data-theme="light"] .cta .glow-a { background: #A7F3D0; opacity: .5; right: 2%; top: -60px; width: 380px; height: 380px; filter: blur(80px); }
+[data-theme="light"] .cta .glow-b { background: #99F6E4; opacity: .45; left: 4%; bottom: -60px; width: 360px; height: 360px; filter: blur(80px); }
+[data-theme="light"] .cta h2 { color: var(--forest); }
+[data-theme="light"] .cta p { color: var(--text-soft); }
+[data-theme="light"] .cta .btn-glass { background: #fff; border-color: var(--line); color: var(--forest); }
+[data-theme="light"] .cta .btn-glass:hover { border-color: var(--emerald); }

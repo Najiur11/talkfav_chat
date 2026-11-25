@@ -29,7 +29,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 const sendPage = (file) => (req, res) => res.sendFile(path.join(__dirname, file));
-app.get('/', sendPage('index.html'));
+// prothom page: Landing (app er porichoy). Login page /index.html e
+app.get('/', sendPage('landing.html'));
+app.get('/landing.html', sendPage('landing.html'));
 app.get('/index.html', sendPage('index.html'));
 app.get('/register.html', sendPage('register.html'));
 app.get('/dashboard.html', sendPage('dashboard.html'));
@@ -82,8 +84,9 @@ if (!process.env.JWT_SECRET) {
     console.warn('WARNING: .env e JWT_SECRET nai. Server restart dile sobai logout hoye jabe. .env e JWT_SECRET=<lomba random lekha> dao.');
 }
 
-function signToken(userId) {
-    const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 3600 })).toString('base64url');
+function signToken(userId, sid) {
+    const now = Math.floor(Date.now() / 1000);
+    const payload = Buffer.from(JSON.stringify({ uid: userId, sid: sid || undefined, iat: now, exp: now + 7 * 24 * 3600 })).toString('base64url');
     const sig = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
     return payload + '.' + sig;
 }
@@ -101,6 +104,68 @@ function verifyToken(token) {
         if (!data.uid || data.exp < Math.floor(Date.now() / 1000)) return null;
         return Number(data.uid);
     } catch (e) { return null; }
+}
+
+function decodeToken(token) {
+    if (!verifyToken(token)) return null;
+    try { return JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString()); } catch (e) { return null; }
+}
+
+// ---------- Session (Active Sessions / logout / ban) ----------
+// protita login = ekta session (device). Token e session id thake; session bondho hole token o bondho
+const authCache = new Map();            // token er shesh ongsho -> { ok, uid, sid, at } (30 sec)
+const sessionTouched = new Map();       // sid -> shesh kokhon last_used update korechi
+
+async function authToken(token) {
+    const data = decodeToken(token);
+    if (!data) return null;
+    const key = token.slice(-32);
+    const hit = authCache.get(key);
+    if (hit && Date.now() - hit.at < 30000) return hit.ok ? hit : null;
+    let ok = false;
+    const u = (await db.query('SELECT banned, sessions_revoked_at FROM users WHERE id = $1', [data.uid])).rows[0];
+    if (u && !u.banned) {
+        if (data.sid) {
+            ok = !!(await db.query('SELECT 1 FROM sessions WHERE id = $1 AND user_id = $2 AND revoked = FALSE', [data.sid, data.uid])).rows[0];
+            if (ok && Date.now() - (sessionTouched.get(data.sid) || 0) > 5 * 60 * 1000) {
+                sessionTouched.set(data.sid, Date.now());
+                db.query('UPDATE sessions SET last_used = NOW() WHERE id = $1', [data.sid]).catch(() => {});
+            }
+        } else {
+            // purono token (session id chhara): "sob device theke logout" er age er hole bondho
+            ok = !u.sessions_revoked_at || (data.iat && data.iat * 1000 > new Date(u.sessions_revoked_at).getTime());
+        }
+    }
+    const entry = { ok, uid: Number(data.uid), sid: data.sid || null, at: Date.now() };
+    authCache.set(key, entry);
+    if (authCache.size > 5000) authCache.delete(authCache.keys().next().value);
+    return ok ? entry : null;
+}
+
+async function createSession(userId, req) {
+    const sid = crypto.randomBytes(16).toString('hex');
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().slice(0, 60);
+    await db.query('INSERT INTO sessions (id, user_id, user_agent, ip) VALUES ($1, $2, $3, $4)',
+        [sid, userId, String(req.headers['user-agent'] || '').slice(0, 300), ip]);
+    return signToken(userId, sid);
+}
+
+// session bondho korle sei device er realtime connection o kete dei
+function kickSessions(userId, keepSid) {
+    authCache.clear();
+    for (const [, sk] of io.sockets.sockets) {
+        if (sk.data.userId === userId && (!keepSid || sk.data.sid !== keepSid)) {
+            sk.emit('session:revoked', {});
+            sk.disconnect(true);
+        }
+    }
+}
+
+async function revokeSessions(userId, keepSid) {
+    if (keepSid) await db.query('UPDATE sessions SET revoked = TRUE WHERE user_id = $1 AND id <> $2', [userId, keepSid]);
+    else await db.query('UPDATE sessions SET revoked = TRUE WHERE user_id = $1', [userId]);
+    await db.query('UPDATE users SET sessions_revoked_at = NOW() WHERE id = $1', [userId]);
+    kickSessions(userId, keepSid);
 }
 
 // ==========================================
@@ -268,6 +333,9 @@ function previewText(message, attType, attName) {
     if (attType === 'video') return '🎬 Video';
     if (attType === 'audio') return (attName || '').startsWith('voice-') ? '🎤 Voice message' : '🎵 Audio';
     if (attType === 'file') return '📎 ' + (attName || 'File');
+    if (attType === 'gif') return '🎞️ GIF';
+    if (attType === 'sticker') return '🧸 Sticker';
+    if (attType === 'location') return '📍 Location';
     return 'New message';
 }
 
@@ -350,26 +418,42 @@ function saveMissedCall(caller, callee, video) {
     }).catch(err => console.error('call log failed:', err.message));
 }
 
+// login token chhara socket connect hobe na (session bondho / ban holeo na)
+io.use(async (socket, next) => {
+    try {
+        const a = await authToken(socket.handshake.auth && socket.handshake.auth.token);
+        if (!a) return next(new Error('unauthorized'));
+        socket.data.userId = a.uid;
+        socket.data.sid = a.sid;
+        next();
+    } catch (e) { next(new Error('unauthorized')); }
+});
+
 io.on('connection', (socket) => {
-    // login token chhara socket connect hobe na
-    const userId = verifyToken(socket.handshake.auth && socket.handshake.auth.token);
+    const userId = socket.data.userId;
     if (!userId) { socket.disconnect(true); return; }
 
-    socket.data.userId = userId;
     socket.join('user:' + userId);
 
     const count = (onlineUsers.get(userId) || 0) + 1;
     onlineUsers.set(userId, count);
 
     // nijer online friend der list pathao + friend der bolo "ami online"
-    const sendPresence = () => getFriendIds(userId, (friendIds) => {
-        socket.emit('presence:list', friendIds.filter(id => onlineUsers.has(id)));
+    // je friend "Online lukao" chalu korechhe, take online dekhabo na
+    const sendPresence = () => getFriendIds(userId, async (friendIds) => {
+        const on = friendIds.filter(id => onlineUsers.has(id));
+        let hidden = [];
+        try { if (on.length) hidden = (await db.query('SELECT id FROM users WHERE id = ANY($1::int[]) AND hide_online', [on])).rows.map(r => r.id); } catch (e) {}
+        socket.emit('presence:list', on.filter(id => !hidden.includes(id)));
     });
     sendPresence();
     if (count === 1) {
-        getFriendIds(userId, (friendIds) => {
-            friendIds.forEach(id => emitToUser(id, 'presence', { user_id: userId, online: true }));
-        });
+        db.query('SELECT hide_online FROM users WHERE id = $1', [userId]).then(r => {
+            if (r.rows[0] && r.rows[0].hide_online) return;
+            getFriendIds(userId, (friendIds) => {
+                friendIds.forEach(id => emitToUser(id, 'presence', { user_id: userId, online: true }));
+            });
+        }).catch(() => {});
     }
 
     socket.on('presence:request', sendPresence);
@@ -596,6 +680,85 @@ async function setupDatabase() {
             PRIMARY KEY (user_id, chat_type, chat_id)
         )`);
 
+    // Account: session, password reset, ban, admin
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_revoked_at TIMESTAMPTZ');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT TRUE');
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_used TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            user_agent TEXT,
+            ip TEXT,
+            revoked BOOLEAN NOT NULL DEFAULT FALSE
+        )`);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)');
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS password_resets (
+            user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            code_hash TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            attempts INT NOT NULL DEFAULT 0
+        )`);
+    await db.query('ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS resolved BOOLEAN NOT NULL DEFAULT FALSE');
+    // Scheduled messages
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS scheduled_messages (
+            id SERIAL PRIMARY KEY,
+            sender_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            receiver_id INT REFERENCES users(id) ON DELETE CASCADE,
+            group_id INT REFERENCES chat_groups(id) ON DELETE CASCADE,
+            message TEXT NOT NULL,
+            send_at TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_messages (send_at)');
+
+    // Disappearing messages: meyad shesh hole message muche jabe
+    await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_expires ON messages (expires_at) WHERE expires_at IS NOT NULL');
+    await db.query('ALTER TABLE chat_groups ADD COLUMN IF NOT EXISTS disappear_seconds INT NOT NULL DEFAULT 0');
+    // friend er sathe chat er timer (duijoner jonno eki): user_a < user_b
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS dm_settings (
+            user_a INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            user_b INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            disappear_seconds INT NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_a, user_b)
+        )`);
+    // Chat wallpaper (protita user er nijer, chat onujayi). chat_type 'a' = sob chat er default
+    await db.query('ALTER TABLE chat_settings ADD COLUMN IF NOT EXISTS wallpaper TEXT');
+
+    // Privacy settings
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS hide_online BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS hide_last_seen BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_visibility VARCHAR(10) NOT NULL DEFAULT 'everyone'");
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS read_receipts BOOLEAN NOT NULL DEFAULT TRUE');
+
+    // Status / Story (24 ghonta)
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS statuses (
+            id SERIAL PRIMARY KEY,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            type VARCHAR(10) NOT NULL,
+            text TEXT,
+            bg VARCHAR(20),
+            media_url TEXT,
+            media_public_id TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours'
+        )`);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_statuses_user ON statuses (user_id, expires_at)');
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS status_views (
+            status_id INT NOT NULL REFERENCES statuses(id) ON DELETE CASCADE,
+            viewer_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            viewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (status_id, viewer_id)
+        )`);
+
     // Link Preview cache: eki link bar bar ana lagbe na
     await db.query(`
         CREATE TABLE IF NOT EXISTS link_previews (
@@ -696,13 +859,17 @@ async function setupDatabase() {
 // ==========================================
 // Login check: register/login chhara sob /api e token lagbe
 // ==========================================
-app.use('/api', (req, res, next) => {
-    if (req.path === '/register' || req.path === '/login' || req.path === '/config' || req.path === '/auth/google') return next();
+const PUBLIC_API = ['/register', '/login', '/config', '/auth/google', '/auth/forgot', '/auth/reset'];
+app.use('/api', async (req, res, next) => {
+    if (PUBLIC_API.includes(req.path)) return next();
     const header = req.headers.authorization || '';
-    const userId = verifyToken(header.startsWith('Bearer ') ? header.slice(7) : '');
-    if (!userId) return res.status(401).json({ message: 'Please login again.' });
-    req.userId = userId;
-    next();
+    try {
+        const a = await authToken(header.startsWith('Bearer ') ? header.slice(7) : '');
+        if (!a) return res.status(401).json({ message: 'Please login again.' });
+        req.userId = a.uid;
+        req.sessionId = a.sid;
+        next();
+    } catch (e) { res.status(500).json({ message: 'Server error. Please try again.' }); }
 });
 
 // URL e deya id nijer id na hole block
@@ -727,18 +894,27 @@ const handle = (fn) => async (req, res) => {
 // 1. User Registration Route
 // ==========================================
 app.post('/api/register', handle(async (req, res) => {
-    const { name, email, country, phone, password } = req.body;
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const country = String(req.body.country || '').trim();
+    const phone = String(req.body.phone || '').trim();
+    const password = String(req.body.password || '');
     if (!name || !email || !phone || !password) {
         return res.status(400).json({ message: 'Please fill in all required fields.' });
     }
+    // server o jachai kore (browser er jachai bypass kora jay)
+    if (name.length > 100) return res.status(400).json({ message: 'Name is too long.', field: 'name' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 255) return res.status(400).json({ message: 'Please enter a valid email address.', field: 'email' });
+    if (!/^[+\d][\d\s()-]{5,29}$/.test(phone)) return res.status(400).json({ message: 'Please enter a valid phone number.', field: 'phone' });
+    if (password.length < 6 || password.length > 100) return res.status(400).json({ message: 'Password must be at least 6 characters.', field: 'password' });
 
-    const exists = await db.query('SELECT 1 FROM users WHERE email = $1', [email]);
-    if (exists.rows.length) return res.status(400).json({ message: 'Email is already registered!' });
+    const exists = await db.query('SELECT 1 FROM users WHERE LOWER(email) = $1', [email]);
+    if (exists.rows.length) return res.status(400).json({ message: 'This email is already registered. Try logging in.', field: 'email' });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     await db.query(
         'INSERT INTO users (name, email, country, phone, password) VALUES ($1, $2, $3, $4, $5)',
-        [name, email, country || null, phone, hashedPassword]
+        [name, email, country.slice(0, 100) || null, phone, hashedPassword]
     );
     res.status(201).json({ message: 'User registered successfully!' });
 }));
@@ -750,12 +926,13 @@ app.post('/api/login', handle(async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Email and password are required!' });
 
-    const { rows } = await db.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (!rows.length) return res.status(400).json({ message: 'User not found! Please register first.' });
+    const { rows } = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [String(email || '').trim()]);
+    if (!rows.length) return res.status(400).json({ message: 'No account found with this email.', field: 'email' });
 
     const user = rows[0];
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: 'Invalid password!' });
+    if (!isMatch) return res.status(400).json({ message: 'Wrong password. Please try again.', field: 'password' });
+    if (user.banned) return res.status(403).json({ message: 'This account has been suspended.' });
 
     res.status(200).json({
         message: 'Login successful!',
@@ -767,7 +944,7 @@ app.post('/api/login', handle(async (req, res) => {
             phone: user.phone,
             avatar: user.avatar || null,
             cover: user.cover || null,
-            token: signToken(user.id)
+            token: await createSession(user.id, req)
         }
     });
 }));
@@ -782,7 +959,8 @@ app.get('/api/users/search', handle(async (req, res) => {
     // relation: friend / sent (ami pathiyechi) / received (se pathiyechhe) / none
     // block kora (je kono dik theke) manush search e ashbe na
     const { rows } = await db.query(`
-        SELECT u.id, u.name, u.email, u.country, u.avatar,
+        SELECT u.id, u.name, u.email, u.country,
+               CASE WHEN u.avatar_visibility = 'friends' AND COALESCE(fr.status, '') <> 'accepted' THEN NULL ELSE u.avatar END AS avatar,
                CASE WHEN fr.status = 'accepted' THEN 'friend'
                     WHEN fr.status = 'pending' AND fr.sender_id = $2 THEN 'sent'
                     WHEN fr.status = 'pending' THEN 'received'
@@ -791,7 +969,7 @@ app.get('/api/users/search', handle(async (req, res) => {
         FROM users u
         LEFT JOIN friend_requests fr
                ON (fr.sender_id = $2 AND fr.receiver_id = u.id) OR (fr.sender_id = u.id AND fr.receiver_id = $2)
-        WHERE (u.name ILIKE $1 OR u.email ILIKE $1) AND u.id <> $2
+        WHERE (u.name ILIKE $1 OR u.email ILIKE $1) AND u.id <> $2 AND NOT u.banned
           AND NOT EXISTS (
               SELECT 1 FROM user_blocks b
               WHERE (b.blocker_id = $2 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $2))
@@ -860,7 +1038,8 @@ app.post('/api/friend-request/accept', handle(async (req, res) => {
 app.get('/api/friends/:userId', handle(async (req, res) => {
     if (!sameUser(req, res, req.params.userId)) return;
     const { rows } = await db.query(`
-        SELECT DISTINCT u.id, u.name, u.email, u.country, u.phone, u.avatar, u.last_seen_at
+        SELECT DISTINCT u.id, u.name, u.email, u.country, u.phone, u.avatar,
+               CASE WHEN u.hide_last_seen THEN NULL ELSE u.last_seen_at END AS last_seen_at
         FROM users u
         JOIN friend_requests fr ON (u.id = fr.sender_id OR u.id = fr.receiver_id)
         WHERE (fr.sender_id = $1 OR fr.receiver_id = $1)
@@ -1017,7 +1196,7 @@ app.get('/api/users/:id/profile', handle(async (req, res) => {
     const blockedMe = blocks.rows.some(r => r.blocker_id === id);
     if (blockedMe && !blockedByMe) return res.status(404).json({ message: 'User not found.' });
 
-    const u = await db.query('SELECT id, name, email, country, avatar, cover, created_at, last_seen_at FROM users WHERE id = $1', [id]);
+    const u = await db.query('SELECT id, name, email, country, avatar, cover, created_at, last_seen_at, hide_last_seen, hide_online, avatar_visibility FROM users WHERE id = $1', [id]);
     if (!u.rows.length) return res.status(404).json({ message: 'User not found.' });
     const user = u.rows[0];
 
@@ -1055,12 +1234,12 @@ app.get('/api/users/:id/profile', handle(async (req, res) => {
             id: user.id,
             name: user.name,
             country: user.country,
-            avatar: user.avatar,
+            avatar: (user.avatar_visibility === 'friends' && !close) ? null : user.avatar,
             cover: user.cover,
             created_at: user.created_at,
             email: close ? user.email : null,
-            last_seen_at: relation === 'friend' ? user.last_seen_at : null,
-            online: relation === 'friend' ? onlineUsers.has(user.id) : null
+            last_seen_at: relation === 'friend' && !user.hide_last_seen ? user.last_seen_at : null,
+            online: relation === 'friend' && !user.hide_online ? onlineUsers.has(user.id) : null
         },
         relation,
         request_id,
@@ -1077,7 +1256,12 @@ app.post('/api/messages/send', handle(async (req, res) => {
     const receiver_id = group_id ? null : parseInt(req.body.receiver_id, 10);
     const message = typeof req.body.message === 'string' ? req.body.message.trim() : '';
     let reply_to_id = parseInt(req.body.reply_to_id, 10) || null;
-    const att = req.body.attachment ? cleanAttachment(req.body.attachment, sender_id) : null;
+    const att = req.body.attachment
+        ? (req.body.attachment.type === 'gif' ? cleanGif(req.body.attachment)
+            : req.body.attachment.type === 'sticker' ? cleanSticker(req.body.attachment)
+            : req.body.attachment.type === 'location' ? cleanLocation(req.body.attachment)
+            : cleanAttachment(req.body.attachment, sender_id))
+        : null;
     if (req.body.attachment && !att) return res.status(400).json({ message: 'Invalid file.' });
     // lekha othoba file - je kono ekta thaktei hobe
     if ((!receiver_id && !group_id) || (!message && !att) || message.length > 5000) return res.status(400).json({ message: 'Invalid message.' });
@@ -1118,11 +1302,12 @@ app.post('/api/messages/send', handle(async (req, res) => {
     const { rows } = await db.query(`
         INSERT INTO messages (sender_id, receiver_id, group_id, message, reply_to_id,
             attachment_url, attachment_type, attachment_name, attachment_size,
-            attachment_mime, attachment_public_id, attachment_duration, mentions)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id
+            attachment_mime, attachment_public_id, attachment_duration, mentions, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id
     `, [sender_id, receiver_id, group_id, message, reply_to_id,
         att && att.url, att && att.type, att && att.name, att && att.size,
-        att && att.mime, att && att.publicId, att && att.duration, mentions]);
+        att && att.mime, att && att.publicId, att && att.duration, mentions,
+        await expiryFor(group_id ? 'g' : 'u', group_id || receiver_id, sender_id)]);
 
     if (group_id) {
         await db.query('UPDATE group_members SET last_read_id = $1 WHERE group_id = $2 AND user_id = $3', [rows[0].id, group_id, sender_id]);
@@ -1164,12 +1349,15 @@ app.get('/api/messages/unread/:userId', handle(async (req, res) => {
                     WHEN m.attachment_type = 'audio' AND m.attachment_name LIKE 'voice-%' THEN '🎤 Voice message'
                     WHEN m.attachment_type = 'audio' THEN '🎵 Audio'
                     WHEN m.attachment_type = 'file' THEN '📎 ' || m.attachment_name
+                    WHEN m.attachment_type = 'gif' THEN '🎞️ GIF'
+                    WHEN m.attachment_type = 'sticker' THEN '🧸 Sticker'
+                    WHEN m.attachment_type = 'location' THEN '📍 Location'
                     ELSE '' END AS last_message
         FROM messages m
         JOIN (
             SELECT sender_id, COUNT(*)::int AS cnt, MAX(id) AS mx
             FROM messages
-            WHERE receiver_id = $1 AND is_read = FALSE AND deleted_at IS NULL
+            WHERE receiver_id = $1 AND is_read = FALSE AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())
             GROUP BY sender_id
         ) c ON m.id = c.mx
     `, [req.userId]);
@@ -1215,7 +1403,7 @@ async function fetchConversation(convoSql, convoParams, userId, q) {
         LEFT JOIN saved_messages sv ON sv.message_id = m.id AND sv.user_id = ${hiddenFor}
         LEFT JOIN messages r ON r.id = m.reply_to_id
         LEFT JOIN users ru ON ru.id = r.sender_id
-        WHERE (${convoSql}) AND h.message_id IS NULL ${extra}
+        WHERE (${convoSql}) AND h.message_id IS NULL AND (m.expires_at IS NULL OR m.expires_at > NOW()) ${extra}
         ORDER BY m.id ${order}${lim}
     `, params);
 
@@ -1273,7 +1461,7 @@ app.get('/api/messages/search', handle(async (req, res) => {
         SELECT m.id FROM messages m
         LEFT JOIN message_hidden h ON h.message_id = m.id AND h.user_id = ${me}
         WHERE (${convoSql}) AND h.message_id IS NULL AND m.deleted_at IS NULL
-          AND m.is_system = FALSE AND m.message ILIKE ${like}
+          AND m.is_system = FALSE AND m.message ILIKE ${like} AND (m.expires_at IS NULL OR m.expires_at > NOW())
         ORDER BY m.id ASC LIMIT 500
     `, params);
     res.status(200).json({ ids: rows.map(r => r.id) });
@@ -1285,6 +1473,10 @@ app.get('/api/messages/:user1/:user2', handle(async (req, res) => {
     const other = parseInt(user2, 10);
     if (!other) return res.status(400).json({ message: 'Invalid user.' });
     const data = await fetchConversation('(m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1)', [req.userId, other], req.userId, req.query);
+    // duijoner keu "Read receipts" bondho korle ✓✓ dekhabe na (WhatsApp er moto)
+    const rr = (await db.query('SELECT id, read_receipts FROM users WHERE id = ANY($1::int[])', [[req.userId, other]])).rows;
+    if (rr.some(r => !r.read_receipts)) data.messages.forEach(m => { if (m.sender_id === req.userId) m.is_read = false; });
+    await hideAvatars(data.messages, req.userId);
     res.status(200).json(data);
 }));
 
@@ -1309,7 +1501,9 @@ app.post('/api/messages/mark-read', handle(async (req, res) => {
         'UPDATE messages SET is_read = TRUE WHERE receiver_id = $1 AND sender_id = $2 AND is_read = FALSE',
         [req.userId, friend_id]
     );
-    emitToUser(friend_id, 'messages:read', { reader_id: req.userId });   // sender er ✓✓
+    // "Read receipts" bondho thakle opor pash ✓✓ pabe na
+    const me = (await db.query('SELECT read_receipts FROM users WHERE id = $1', [req.userId])).rows[0];
+    if (!me || me.read_receipts) emitToUser(friend_id, 'messages:read', { reader_id: req.userId });   // sender er ✓✓
     res.status(200).json({ message: 'Marked as read' });
 }));
 
@@ -1754,7 +1948,7 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 if (!GOOGLE_CLIENT_ID) console.warn('WARNING: GOOGLE_CLIENT_ID nai, Google Login bondho.');
 
 app.get('/api/config', (req, res) => {
-    res.status(200).json({ googleClientId: GOOGLE_CLIENT_ID || null, vapidPublicKey: pushReady ? VAPID.pub : null });
+    res.status(200).json({ googleClientId: GOOGLE_CLIENT_ID || null, vapidPublicKey: pushReady ? VAPID.pub : null, gifEnabled: gifReady, gifProvider: GIF_KEYS.tenor ? 'Tenor' : (GIF_KEYS.giphy ? 'GIPHY' : null) });
 });
 
 // ==========================================
@@ -1802,12 +1996,13 @@ app.post('/api/auth/google', handle(async (req, res) => {
     // age Google diye, ba eki email e account thakle sei account; nahole notun
     let { rows } = await db.query('SELECT * FROM users WHERE google_id = $1 OR LOWER(email) = $2 ORDER BY (google_id = $1) DESC LIMIT 1', [info.sub, email]);
     let user = rows[0];
+    if (user && user.banned) return res.status(403).json({ message: 'This account has been suspended.' });
     if (user) {
         if (!user.google_id) await db.query('UPDATE users SET google_id = $1 WHERE id = $2', [info.sub, user.id]);
     } else {
         const randomPass = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);   // password diye login kora jabe na
         const ins = await db.query(
-            'INSERT INTO users (name, email, phone, password, google_id, avatar) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            'INSERT INTO users (name, email, phone, password, google_id, avatar, password_set) VALUES ($1, $2, $3, $4, $5, $6, FALSE) RETURNING *',
             [name, email, '', randomPass, info.sub, /^https:\/\//.test(info.picture || '') ? info.picture : null]
         );
         user = ins.rows[0];
@@ -1816,7 +2011,7 @@ app.post('/api/auth/google', handle(async (req, res) => {
         message: 'Login successful!',
         user: {
             id: user.id, name: user.name, email: user.email, country: user.country, phone: user.phone,
-            avatar: user.avatar || null, cover: user.cover || null, token: signToken(user.id)
+            avatar: user.avatar || null, cover: user.cover || null, token: await createSession(user.id, req)
         }
     });
 }));
@@ -1891,8 +2086,8 @@ app.post('/api/polls', handle(async (req, res) => {
     if (g.send_permission === 'admins' && g.role !== 'admin') return res.status(403).json({ message: 'Only admins can send messages in this group.' });
 
     const { rows } = await db.query(
-        'INSERT INTO messages (sender_id, group_id, message) VALUES ($1, $2, $3) RETURNING id',
-        [req.userId, group_id, '📊 ' + question]
+        'INSERT INTO messages (sender_id, group_id, message, expires_at) VALUES ($1, $2, $3, $4) RETURNING id',
+        [req.userId, group_id, '📊 ' + question, await expiryFor('g', group_id, req.userId)]
     );
     await db.query(
         'INSERT INTO polls (message_id, question, options, multiple, created_by) VALUES ($1, $2, $3, $4, $5)',
@@ -1954,7 +2149,7 @@ app.get('/api/messages/saved', handle(async (req, res) => {
         JOIN messages m ON m.id = s.message_id
         JOIN users su ON su.id = m.sender_id
         LEFT JOIN chat_groups g ON g.id = m.group_id
-        WHERE s.user_id = $1 AND m.deleted_at IS NULL
+        WHERE s.user_id = $1 AND m.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > NOW())
           AND (m.group_id IS NULL OR EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = m.group_id AND gm.user_id = $1))
         ORDER BY s.saved_at DESC LIMIT 200
     `, [req.userId]);
@@ -1965,35 +2160,771 @@ app.get('/api/messages/saved', handle(async (req, res) => {
 // 13. PIN / ARCHIVE / MUTE CHAT
 // ==========================================
 app.get('/api/chat-settings', handle(async (req, res) => {
-    const { rows } = await db.query('SELECT chat_type, chat_id, pinned_at, archived, muted FROM chat_settings WHERE user_id = $1', [req.userId]);
+    const { rows } = await db.query('SELECT chat_type, chat_id, pinned_at, archived, muted, wallpaper FROM chat_settings WHERE user_id = $1', [req.userId]);
     res.status(200).json({ settings: rows });
 }));
 
 app.post('/api/chat-settings', handle(async (req, res) => {
-    const type = req.body.type === 'g' ? 'g' : (req.body.type === 'u' ? 'u' : null);
-    const id = parseInt(req.body.id, 10);
-    if (!type || !id) return res.status(400).json({ message: 'Invalid chat.' });
-    // nijer chat i hote hobe
-    if (type === 'g' ? !(await groupAccess(id, req.userId)) : !(await isFriend(req.userId, id))) {
+    const type = ['g', 'u', 'a'].includes(req.body.type) ? req.body.type : null;
+    const id = type === 'a' ? 0 : parseInt(req.body.id, 10);
+    if (!type || (type !== 'a' && !id)) return res.status(400).json({ message: 'Invalid chat.' });
+    // nijer chat i hote hobe ('a' = sob chat er default wallpaper)
+    if (type !== 'a' && (type === 'g' ? !(await groupAccess(id, req.userId)) : !(await isFriend(req.userId, id)))) {
         return res.status(404).json({ message: 'Chat not found.' });
     }
+    // wallpaper: ready kora nam (preset) othoba nijer upload kora chhobi (Cloudinary)
+    let wallpaperChange;
+    if (req.body.wallpaper !== undefined) {
+        const w = req.body.wallpaper;
+        if (!w) wallpaperChange = null;
+        else if (typeof w === 'string' && WALLPAPER_PRESETS.includes(w)) wallpaperChange = w;
+        else if (w && typeof w === 'object' && cleanAttachment({ type: 'image', url: w.url, public_id: w.public_id }, req.userId)) wallpaperChange = w.url;
+        else return res.status(400).json({ message: 'Invalid wallpaper.' });
+    }
     const cur = (await db.query('SELECT * FROM chat_settings WHERE user_id = $1 AND chat_type = $2 AND chat_id = $3', [req.userId, type, id])).rows[0]
-        || { pinned_at: null, archived: false, muted: false };
+        || { pinned_at: null, archived: false, muted: false, wallpaper: null };
+    const wallpaper = wallpaperChange === undefined ? cur.wallpaper : wallpaperChange;
     let pinned_at = req.body.pinned === undefined ? cur.pinned_at : (req.body.pinned ? new Date() : null);
     let archived = req.body.archived === undefined ? cur.archived : !!req.body.archived;
     const muted = req.body.muted === undefined ? cur.muted : !!req.body.muted;
     if (req.body.archived === true) pinned_at = null;     // archive korle pin uthe jay
     if (pinned_at) archived = false;                       // pin korle archive theke ber hoy
     await db.query(`
-        INSERT INTO chat_settings (user_id, chat_type, chat_id, pinned_at, archived, muted) VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (user_id, chat_type, chat_id) DO UPDATE SET pinned_at = EXCLUDED.pinned_at, archived = EXCLUDED.archived, muted = EXCLUDED.muted
-    `, [req.userId, type, id, pinned_at, archived, muted]);
+        INSERT INTO chat_settings (user_id, chat_type, chat_id, pinned_at, archived, muted, wallpaper) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (user_id, chat_type, chat_id) DO UPDATE SET pinned_at = EXCLUDED.pinned_at, archived = EXCLUDED.archived,
+            muted = EXCLUDED.muted, wallpaper = EXCLUDED.wallpaper
+    `, [req.userId, type, id, pinned_at, archived, muted, wallpaper]);
     // group er mute group_members e-o (group notification er jonno)
     if (type === 'g' && req.body.muted !== undefined) {
         await db.query('UPDATE group_members SET muted = $1 WHERE group_id = $2 AND user_id = $3', [muted, id, req.userId]);
     }
     emitToUser(req.userId, 'chat-settings:changed', {});
     if (type === 'g') emitToUser(req.userId, 'groups:changed', { group_id: id });
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
+// 14. PRIVACY SETTINGS
+// ==========================================
+// message e onner chhobi: "shudhu friend ra dekhbe" holeo friend na hole lukao
+async function hideAvatars(messages, userId) {
+    const others = [...new Set(messages.map(m => m.sender_id).filter(id => id !== userId))];
+    if (!others.length) return;
+    const { rows } = await db.query("SELECT id FROM users WHERE id = ANY($1::int[]) AND avatar_visibility = 'friends'", [others]);
+    if (!rows.length) return;
+    const friendIds = await friendIdsOf(userId);
+    const hide = rows.map(r => r.id).filter(id => !friendIds.includes(id));
+    messages.forEach(m => { if (hide.includes(m.sender_id)) m.sender_avatar = null; });
+}
+
+app.get('/api/users/privacy', handle(async (req, res) => {
+    const { rows } = await db.query('SELECT hide_online, hide_last_seen, avatar_visibility, read_receipts FROM users WHERE id = $1', [req.userId]);
+    res.status(200).json({ privacy: rows[0] });
+}));
+
+app.post('/api/users/privacy', handle(async (req, res) => {
+    const cur = (await db.query('SELECT hide_online, hide_last_seen, avatar_visibility, read_receipts FROM users WHERE id = $1', [req.userId])).rows[0];
+    const b = req.body;
+    const next = {
+        hide_online: typeof b.hide_online === 'boolean' ? b.hide_online : cur.hide_online,
+        hide_last_seen: typeof b.hide_last_seen === 'boolean' ? b.hide_last_seen : cur.hide_last_seen,
+        avatar_visibility: ['everyone', 'friends'].includes(b.avatar_visibility) ? b.avatar_visibility : cur.avatar_visibility,
+        read_receipts: typeof b.read_receipts === 'boolean' ? b.read_receipts : cur.read_receipts
+    };
+    await db.query(
+        'UPDATE users SET hide_online = $1, hide_last_seen = $2, avatar_visibility = $3, read_receipts = $4 WHERE id = $5',
+        [next.hide_online, next.hide_last_seen, next.avatar_visibility, next.read_receipts, req.userId]
+    );
+    // online lukano bodlale friend der shathe shathe janai
+    if (next.hide_online !== cur.hide_online) {
+        const friendIds = await friendIdsOf(req.userId);
+        const online = !next.hide_online && onlineUsers.has(req.userId);
+        friendIds.forEach(id => emitToUser(id, 'presence', { user_id: req.userId, online }));
+    }
+    res.status(200).json({ ok: true, privacy: next });
+}));
+
+// ==========================================
+// 15. GROUP "SEEN BY"
+// ==========================================
+app.get('/api/groups/:id/messages/:mid/seen', handle(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const mid = parseInt(req.params.mid, 10);
+    if (!id || !mid || !(await groupAccess(id, req.userId))) return res.status(404).json({ message: 'Group not found.' });
+    const msg = (await db.query('SELECT sender_id FROM messages WHERE id = $1 AND group_id = $2', [mid, id])).rows[0];
+    if (!msg) return res.status(404).json({ message: 'Message not found.' });
+    const { rows } = await db.query(`
+        SELECT u.id, u.name, u.avatar, gm.last_read_id >= $2 AS seen
+        FROM group_members gm JOIN users u ON u.id = gm.user_id
+        WHERE gm.group_id = $1 AND gm.user_id <> $3 AND u.read_receipts
+        ORDER BY seen DESC, u.name
+    `, [id, mid, msg.sender_id]);
+    res.status(200).json({ seen: rows.filter(r => r.seen), not_seen: rows.filter(r => !r.seen) });
+}));
+
+// ==========================================
+// 16. STATUS / STORY (24 ghonta, shudhu friend ra dekhe)
+// ==========================================
+const STATUS_BGS = ['#7c5cff', '#2f7bff', '#ec1fc8', '#16a34a', '#f59e0b', '#ef4444', '#0f172a', '#0ea5e9'];
+
+app.get('/api/statuses', handle(async (req, res) => {
+    const friendIds = await friendIdsOf(req.userId);
+    const { rows } = await db.query(`
+        SELECT s.id, s.user_id, s.type, s.text, s.bg, s.media_url, s.created_at, s.expires_at,
+               u.name, u.avatar, (v.viewer_id IS NOT NULL) AS viewed,
+               CASE WHEN s.user_id = $1 THEN (SELECT COUNT(*)::int FROM status_views x WHERE x.status_id = s.id) END AS view_count
+        FROM statuses s
+        JOIN users u ON u.id = s.user_id
+        LEFT JOIN status_views v ON v.status_id = s.id AND v.viewer_id = $1
+        WHERE s.expires_at > NOW() AND (s.user_id = $1 OR s.user_id = ANY($2::int[]))
+        ORDER BY s.created_at ASC
+    `, [req.userId, friendIds]);
+    // manush onujayi sajano: ami agey, tarpor na dekha gulo, tarpor notun gulo
+    const byUser = new Map();
+    rows.forEach(r => {
+        if (!byUser.has(r.user_id)) byUser.set(r.user_id, { user: { id: r.user_id, name: r.name, avatar: r.avatar }, statuses: [] });
+        byUser.get(r.user_id).statuses.push({
+            id: r.id, type: r.type, text: r.text, bg: r.bg, media_url: r.media_url,
+            created_at: r.created_at, expires_at: r.expires_at, viewed: r.viewed, view_count: r.view_count
+        });
+    });
+    const groupsList = [...byUser.values()].map(g => ({ ...g, all_viewed: g.statuses.every(x => x.viewed), latest: g.statuses[g.statuses.length - 1].created_at }));
+    groupsList.sort((a, b) => (b.user.id === req.userId) - (a.user.id === req.userId) || (a.all_viewed - b.all_viewed) || (new Date(b.latest) - new Date(a.latest)));
+    res.status(200).json({ statuses: groupsList });
+}));
+
+app.post('/api/statuses', handle(async (req, res) => {
+    const type = ['text', 'image', 'video'].includes(req.body.type) ? req.body.type : null;
+    if (!type) return res.status(400).json({ message: 'Invalid status.' });
+    const text = typeof req.body.text === 'string' ? req.body.text.trim().slice(0, 700) : '';
+    let bg = null, media = null;
+    if (type === 'text') {
+        if (!text) return res.status(400).json({ message: 'Write something for your status.' });
+        bg = STATUS_BGS.includes(req.body.bg) ? req.body.bg : STATUS_BGS[0];
+    } else {
+        media = cleanAttachment({ type, url: req.body.url, public_id: req.body.public_id }, req.userId);
+        if (!media) return res.status(400).json({ message: 'Invalid photo or video.' });
+    }
+    // ekdine 30 tar beshi na
+    const count = (await db.query('SELECT COUNT(*)::int AS n FROM statuses WHERE user_id = $1 AND expires_at > NOW()', [req.userId])).rows[0].n;
+    if (count >= 30) return res.status(429).json({ message: 'You can have at most 30 active statuses.' });
+    await db.query(
+        'INSERT INTO statuses (user_id, type, text, bg, media_url, media_public_id) VALUES ($1, $2, $3, $4, $5, $6)',
+        [req.userId, type, text || null, bg, media && media.url, media && media.publicId]
+    );
+    emitMany([req.userId, ...(await friendIdsOf(req.userId))], 'statuses:changed', { user_id: req.userId });
+    res.status(200).json({ ok: true });
+}));
+
+app.post('/api/statuses/:id/view', handle(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const st = (await db.query('SELECT user_id FROM statuses WHERE id = $1 AND expires_at > NOW()', [id])).rows[0];
+    if (!st) return res.status(404).json({ message: 'Status not found.' });
+    if (st.user_id === req.userId) return res.status(200).json({ ok: true });
+    if (!(await isFriend(st.user_id, req.userId))) return res.status(404).json({ message: 'Status not found.' });
+    const r = await db.query('INSERT INTO status_views (status_id, viewer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, req.userId]);
+    if (r.rowCount) emitToUser(st.user_id, 'statuses:viewed', { status_id: id });
+    res.status(200).json({ ok: true });
+}));
+
+app.get('/api/statuses/:id/viewers', handle(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const st = (await db.query('SELECT user_id FROM statuses WHERE id = $1', [id])).rows[0];
+    if (!st || st.user_id !== req.userId) return res.status(404).json({ message: 'Status not found.' });
+    const { rows } = await db.query(`
+        SELECT u.id, u.name, u.avatar, v.viewed_at FROM status_views v JOIN users u ON u.id = v.viewer_id
+        WHERE v.status_id = $1 ORDER BY v.viewed_at DESC
+    `, [id]);
+    res.status(200).json({ viewers: rows });
+}));
+
+app.post('/api/statuses/:id/delete', handle(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const { rows } = await db.query('DELETE FROM statuses WHERE id = $1 AND user_id = $2 RETURNING media_public_id, type', [id, req.userId]);
+    if (!rows.length) return res.status(404).json({ message: 'Status not found.' });
+    if (rows[0].media_public_id) cloudDestroy(rows[0].media_public_id, rows[0].type);
+    emitMany([req.userId, ...(await friendIdsOf(req.userId))], 'statuses:changed', { user_id: req.userId });
+    res.status(200).json({ ok: true });
+}));
+
+// meyad shesh status proti ghontay muche felo (Cloudinary theke-o)
+async function cleanupStatuses() {
+    try {
+        const { rows } = await db.query('DELETE FROM statuses WHERE expires_at <= NOW() RETURNING media_public_id, type');
+        rows.forEach(r => { if (r.media_public_id) cloudDestroy(r.media_public_id, r.type); });
+    } catch (e) { console.error('status cleanup failed:', e.message); }
+}
+setInterval(cleanupStatuses, 60 * 60 * 1000);
+
+// ==========================================
+// 17. DISAPPEARING MESSAGES
+// ==========================================
+const TIMER_OPTIONS = [0, 3600, 86400, 604800, 7776000];          // off, 1 ghonta, 24 ghonta, 7 din, 90 din
+
+async function chatTimer(type, id, userId) {
+    if (type === 'g') {
+        const r = await db.query('SELECT disappear_seconds FROM chat_groups WHERE id = $1', [id]);
+        return r.rows[0] ? r.rows[0].disappear_seconds : 0;
+    }
+    const [a, b] = [Math.min(id, userId), Math.max(id, userId)];
+    const r = await db.query('SELECT disappear_seconds FROM dm_settings WHERE user_a = $1 AND user_b = $2', [a, b]);
+    return r.rows[0] ? r.rows[0].disappear_seconds : 0;
+}
+
+// notun message kokhon muchbe (timer bondho hole null)
+async function expiryFor(type, id, userId) {
+    const sec = await chatTimer(type, id, userId);
+    return sec ? new Date(Date.now() + sec * 1000) : null;
+}
+
+function timerLabel(sec) {
+    return ({ 3600: '1 hour', 86400: '24 hours', 604800: '7 days', 7776000: '90 days' })[sec] || 'off';
+}
+
+app.get('/api/chat-timer', handle(async (req, res) => {
+    const type = req.query.type === 'g' ? 'g' : 'u';
+    const id = parseInt(req.query.id, 10);
+    if (!id || (type === 'g' ? !(await groupAccess(id, req.userId)) : !(await isFriend(req.userId, id)))) return res.status(404).json({ message: 'Chat not found.' });
+    res.status(200).json({ seconds: await chatTimer(type, id, req.userId) });
+}));
+
+app.post('/api/chat-timer', handle(async (req, res) => {
+    const type = req.body.type === 'g' ? 'g' : 'u';
+    const id = parseInt(req.body.id, 10);
+    const seconds = Number(req.body.seconds);
+    if (!id || !TIMER_OPTIONS.includes(seconds)) return res.status(400).json({ message: 'Invalid timer.' });
+
+    let audience;
+    if (type === 'g') {
+        const g = await groupAccess(id, req.userId);
+        if (!g) return res.status(404).json({ message: 'Chat not found.' });
+        if (g.role !== 'admin' && g.edit_permission !== 'all') return res.status(403).json({ message: 'Only admins can change this.' });
+        await db.query('UPDATE chat_groups SET disappear_seconds = $1 WHERE id = $2', [seconds, id]);
+        await systemMessage(id, req.userId, seconds ? 'turned on disappearing messages (' + timerLabel(seconds) + ')' : 'turned off disappearing messages');
+        audience = await groupMemberIds(id);
+    } else {
+        if (!(await isFriend(req.userId, id))) return res.status(404).json({ message: 'Chat not found.' });
+        const [a, b] = [Math.min(id, req.userId), Math.max(id, req.userId)];
+        await db.query(`
+            INSERT INTO dm_settings (user_a, user_b, disappear_seconds) VALUES ($1, $2, $3)
+            ON CONFLICT (user_a, user_b) DO UPDATE SET disappear_seconds = EXCLUDED.disappear_seconds
+        `, [a, b, seconds]);
+        // chat e chhoto lekha: "X turned on disappearing messages"
+        await db.query(
+            'INSERT INTO messages (sender_id, receiver_id, message, is_system, is_read) VALUES ($1, $2, $3, TRUE, TRUE)',
+            [req.userId, id, seconds ? 'turned on disappearing messages (' + timerLabel(seconds) + ')' : 'turned off disappearing messages']
+        );
+        audience = [req.userId, id];
+        emitToUser(id, 'message:new', { sender_id: req.userId, receiver_id: id });
+        emitToUser(req.userId, 'message:new', {});
+    }
+    emitMany(audience, 'chat-timer:changed', { type, id: type === 'g' ? id : null });
+    res.status(200).json({ ok: true, seconds });
+}));
+
+// meyad shesh message 5 minit por por muche felo (file keu ar na use korle Cloudinary theke-o)
+async function cleanupExpiredMessages() {
+    try {
+        const { rows } = await db.query('DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= NOW() RETURNING attachment_public_id, attachment_type');
+        for (const r of rows) {
+            if (!r.attachment_public_id) continue;
+            const still = await db.query('SELECT 1 FROM messages WHERE attachment_public_id = $1 LIMIT 1', [r.attachment_public_id]);
+            if (!still.rows.length) cloudDestroy(r.attachment_public_id, r.attachment_type);
+        }
+    } catch (e) { console.error('message cleanup failed:', e.message); }
+}
+setInterval(cleanupExpiredMessages, 5 * 60 * 1000);
+
+// ==========================================
+// 18. GIF (Tenor ba GIPHY) - key server ei thake
+// ==========================================
+const GIF_KEYS = { tenor: process.env.TENOR_API_KEY, giphy: process.env.GIPHY_API_KEY };
+const gifReady = !!(GIF_KEYS.tenor || GIF_KEYS.giphy);
+if (!gifReady) console.warn('WARNING: TENOR_API_KEY / GIPHY_API_KEY nai, GIF bondho.');
+const gifCache = new Map();             // "q|pos" -> { at, data }
+const gifRate = new Map();
+
+// shudhu Tenor / GIPHY er chhobi (onno kono link na)
+function cleanGif(a) {
+    if (!a || typeof a.url !== 'string') return null;
+    let u;
+    try { u = new URL(a.url); } catch (e) { return null; }
+    const okHost = u.protocol === 'https:' && (/^(media\d*|c)\.tenor\.com$/.test(u.hostname) || /^(media\d*|i)\.giphy\.com$/.test(u.hostname));
+    if (!okHost) return null;
+    return { type: 'gif', url: u.href, name: String(a.name || 'GIF').slice(0, 100), size: 0, mime: 'image/gif', publicId: null, duration: null };
+}
+
+app.get('/api/gifs', handle(async (req, res) => {
+    if (!gifReady) return res.status(503).json({ message: 'GIFs are not set up yet.' });
+    const now = Date.now();
+    const r = gifRate.get(req.userId) || { count: 0, start: now };
+    if (now - r.start > 60000) { r.count = 0; r.start = now; }
+    if (++r.count > 60) return res.status(429).json({ message: 'Too many searches. Wait a minute.' });
+    gifRate.set(req.userId, r);
+
+    const q = String(req.query.q || '').trim().slice(0, 50);
+    const pos = String(req.query.pos || '').slice(0, 50);
+    const key = q.toLowerCase() + '|' + pos;
+    const hit = gifCache.get(key);
+    if (hit && now - hit.at < 10 * 60 * 1000) return res.status(200).json(hit.data);
+
+    let data;
+    if (GIF_KEYS.tenor) {
+        const params = new URLSearchParams({ key: GIF_KEYS.tenor, client_key: 'talkfav', limit: '24', media_filter: 'tinygif,gif', contentfilter: 'medium' });
+        if (q) params.set('q', q);
+        if (pos) params.set('pos', pos);
+        const r2 = await fetch('https://tenor.googleapis.com/v2/' + (q ? 'search' : 'featured') + '?' + params, { signal: AbortSignal.timeout(8000) });
+        if (!r2.ok) return res.status(502).json({ message: 'Could not load GIFs.' });
+        const j = await r2.json();
+        data = {
+            next: j.next || null,
+            gifs: (j.results || []).map(g => ({
+                id: g.id,
+                preview: g.media_formats && g.media_formats.tinygif && g.media_formats.tinygif.url,
+                url: g.media_formats && (g.media_formats.gif || g.media_formats.tinygif) && (g.media_formats.gif || g.media_formats.tinygif).url,
+                title: g.content_description || 'GIF'
+            })).filter(g => g.preview && g.url)
+        };
+    } else {
+        const offset = parseInt(pos, 10) || 0;
+        const params = new URLSearchParams({ api_key: GIF_KEYS.giphy, limit: '24', offset: String(offset), rating: 'pg-13' });
+        if (q) params.set('q', q);
+        const r2 = await fetch('https://api.giphy.com/v1/gifs/' + (q ? 'search' : 'trending') + '?' + params, { signal: AbortSignal.timeout(8000) });
+        if (!r2.ok) return res.status(502).json({ message: 'Could not load GIFs.' });
+        const j = await r2.json();
+        const total = j.pagination ? j.pagination.total_count : 0;
+        data = {
+            next: offset + 24 < total ? String(offset + 24) : null,
+            gifs: (j.data || []).map(g => ({
+                id: g.id,
+                preview: g.images && g.images.fixed_height_small && g.images.fixed_height_small.url,
+                url: g.images && (g.images.downsized_medium || g.images.fixed_height) && (g.images.downsized_medium || g.images.fixed_height).url,
+                title: g.title || 'GIF'
+            })).filter(g => g.preview && g.url)
+        };
+    }
+    gifCache.set(key, { at: now, data });
+    if (gifCache.size > 500) gifCache.delete(gifCache.keys().next().value);
+    res.status(200).json(data);
+}));
+
+// ==========================================
+// 19. CHAT WALLPAPER (preset nam gulo; nijer chhobi o deya jay)
+// ==========================================
+const WALLPAPER_PRESETS = ['sky', 'sunset', 'mint', 'lavender', 'peach', 'night', 'ocean', 'forest', 'dots', 'doodle', 'hearts', 'grid'];
+
+// ==========================================
+// 20. ACCOUNT: Edit Profile, Change Password, Delete Account, Sessions
+// ==========================================
+app.post('/api/users/profile', handle(async (req, res) => {
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    const phone = typeof req.body.phone === 'string' ? req.body.phone.trim() : '';
+    const country = typeof req.body.country === 'string' ? req.body.country.trim() : '';
+    if (!name || name.length > 100) return res.status(400).json({ message: 'Name is required (max 100 characters).' });
+    if (phone && !/^[+\d][\d\s()-]{3,29}$/.test(phone)) return res.status(400).json({ message: 'Please enter a valid phone number.' });
+    if (country.length > 100) return res.status(400).json({ message: 'Country name is too long.' });
+    const { rows } = await db.query(
+        'UPDATE users SET name = $1, phone = $2, country = $3 WHERE id = $4 RETURNING id, name, email, phone, country',
+        [name, phone, country || null, req.userId]
+    );
+    emitMany(await friendIdsOf(req.userId), 'friends:changed', {});      // friend der list e notun nam
+    res.status(200).json({ ok: true, user: rows[0] });
+}));
+
+app.get('/api/users/me', handle(async (req, res) => {
+    const { rows } = await db.query('SELECT id, name, email, phone, country, password_set, google_id IS NOT NULL AS google FROM users WHERE id = $1', [req.userId]);
+    res.status(200).json({ user: rows[0], is_admin: await isAdmin(req.userId) });
+}));
+
+app.post('/api/users/password', handle(async (req, res) => {
+    const current = String(req.body.current || '');
+    const next = String(req.body.password || '');
+    if (next.length < 6 || next.length > 100) return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    const u = (await db.query('SELECT password, password_set FROM users WHERE id = $1', [req.userId])).rows[0];
+    // Google diye khola account e age kono password chhilo na
+    if (u.password_set && !(await bcrypt.compare(current, u.password))) return res.status(400).json({ message: 'Current password is wrong.' });
+    await db.query('UPDATE users SET password = $1, password_set = TRUE WHERE id = $2', [await bcrypt.hash(next, 10), req.userId]);
+    await revokeSessions(req.userId, req.sessionId);                  // onno sob device theke logout
+    res.status(200).json({ ok: true, message: 'Password changed. Other devices were logged out.' });
+}));
+
+// ekta browser/phone er nam: "Chrome · Windows"
+function deviceName(ua) {
+    ua = ua || '';
+    const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+        : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad|iPod/.test(ua) ? 'iPhone / iPad'
+        : /Mac OS X/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Unknown device';
+    return browser + ' · ' + os;
+}
+
+app.get('/api/sessions', handle(async (req, res) => {
+    const { rows } = await db.query(`
+        SELECT id, created_at, last_used, user_agent, ip FROM sessions
+        WHERE user_id = $1 AND revoked = FALSE AND created_at > NOW() - INTERVAL '8 days'
+        ORDER BY last_used DESC
+    `, [req.userId]);
+    res.status(200).json({
+        sessions: rows.map(r => ({
+            id: r.id, device: deviceName(r.user_agent), created_at: r.created_at, last_used: r.last_used,
+            ip: (r.ip || '').replace(/(\d+)\.(\d+)$/, 'x.x'),            // pura IP dekhai na
+            current: r.id === req.sessionId
+        })),
+        legacy: !req.sessionId
+    });
+}));
+
+app.post('/api/sessions/:id/revoke', handle(async (req, res) => {
+    const r = await db.query('UPDATE sessions SET revoked = TRUE WHERE id = $1 AND user_id = $2', [req.params.id, req.userId]);
+    if (!r.rowCount) return res.status(404).json({ message: 'Session not found.' });
+    authCache.clear();
+    for (const [, sk] of io.sockets.sockets) if (sk.data.sid === req.params.id) { sk.emit('session:revoked', {}); sk.disconnect(true); }
+    res.status(200).json({ ok: true });
+}));
+
+app.post('/api/sessions/revoke-others', handle(async (req, res) => {
+    await revokeSessions(req.userId, req.sessionId);
+    res.status(200).json({ ok: true });
+}));
+
+app.post('/api/auth/logout', handle(async (req, res) => {
+    if (req.sessionId) {
+        await db.query('UPDATE sessions SET revoked = TRUE WHERE id = $1', [req.sessionId]);
+        authCache.clear();
+    }
+    res.status(200).json({ ok: true });
+}));
+
+// Delete Account: sob muche jay (message, group membership, file)
+app.post('/api/users/delete', handle(async (req, res) => {
+    if (req.body.confirm !== 'DELETE') return res.status(400).json({ message: 'Type DELETE to confirm.' });
+    const u = (await db.query('SELECT password, password_set, cover_public_id FROM users WHERE id = $1', [req.userId])).rows[0];
+    if (u.password_set && !(await bcrypt.compare(String(req.body.password || ''), u.password))) {
+        return res.status(400).json({ message: 'Password is wrong.' });
+    }
+    const friends = await friendIdsOf(req.userId);
+    // je group e ami ekmatro admin, sekhane shobcheye purono member ke admin kori
+    const { rows: adminGroups } = await db.query(`
+        SELECT gm.group_id FROM group_members gm
+        WHERE gm.user_id = $1 AND gm.role = 'admin'
+          AND NOT EXISTS (SELECT 1 FROM group_members x WHERE x.group_id = gm.group_id AND x.role = 'admin' AND x.user_id <> $1)
+    `, [req.userId]);
+    for (const g of adminGroups) {
+        await db.query(`
+            UPDATE group_members SET role = 'admin'
+            WHERE group_id = $1 AND user_id = (SELECT user_id FROM group_members WHERE group_id = $1 AND user_id <> $2 ORDER BY joined_at LIMIT 1)
+        `, [g.group_id, req.userId]);
+    }
+    // Cloudinary file gulo (onno kothao forward kora na thakle)
+    const { rows: files } = await db.query(
+        "SELECT DISTINCT attachment_public_id AS pid, attachment_type AS t FROM messages WHERE sender_id = $1 AND attachment_public_id IS NOT NULL LIMIT 1000",
+        [req.userId]
+    );
+    const { rows: statusFiles } = await db.query('SELECT media_public_id AS pid, type AS t FROM statuses WHERE user_id = $1 AND media_public_id IS NOT NULL', [req.userId]);
+    kickSessions(req.userId);
+    await db.query('DELETE FROM users WHERE id = $1', [req.userId]);
+    for (const f of files) {
+        const still = await db.query('SELECT 1 FROM messages WHERE attachment_public_id = $1 LIMIT 1', [f.pid]);
+        if (!still.rows.length) cloudDestroy(f.pid, f.t);
+    }
+    statusFiles.forEach(f => cloudDestroy(f.pid, f.t));
+    if (u.cover_public_id) cloudDestroy(u.cover_public_id, 'image');
+    emitMany(friends, 'friends:changed', {});
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
+// 21. FORGOT PASSWORD (email e 6 sonkhar code) - Brevo diye email
+// .env: BREVO_API_KEY, MAIL_FROM (Brevo te verify kora email), MAIL_FROM_NAME (choile)
+// ==========================================
+const MAIL = { key: process.env.BREVO_API_KEY, from: process.env.MAIL_FROM, name: process.env.MAIL_FROM_NAME || 'TalkFav' };
+const mailReady = !!(MAIL.key && MAIL.from);
+if (!mailReady) console.warn('WARNING: BREVO_API_KEY / MAIL_FROM nai, Forgot Password er email jabe na.');
+const forgotRate = new Map();           // ip -> { count, start }
+
+async function sendMail(to, subject, html) {
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': MAIL.key, 'Content-Type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ sender: { email: MAIL.from, name: MAIL.name }, to: [{ email: to }], subject, htmlContent: html }),
+        signal: AbortSignal.timeout(10000)
+    });
+    if (!r.ok) throw new Error('Brevo ' + r.status + ' ' + (await r.text()).slice(0, 200));
+}
+
+const codeHash = (userId, code) => crypto.createHash('sha256').update(userId + ':' + code + ':' + JWT_SECRET).digest('hex');
+
+app.post('/api/auth/forgot', handle(async (req, res) => {
+    if (!mailReady) return res.status(503).json({ message: 'Password reset by email is not set up yet.' });
+    const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+    const now = Date.now();
+    const r = forgotRate.get(ip) || { count: 0, start: now };
+    if (now - r.start > 15 * 60 * 1000) { r.count = 0; r.start = now; }
+    if (++r.count > 5) return res.status(429).json({ message: 'Too many requests. Try again in 15 minutes.' });
+    forgotRate.set(ip, r);
+
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const okMsg = { ok: true, message: 'If this email is registered, we sent a 6-digit code to it.' };
+    const user = (await db.query('SELECT id, name, banned FROM users WHERE LOWER(email) = $1', [email])).rows[0];
+    if (!user || user.banned) return res.status(200).json(okMsg);          // account ache kina bolbo na
+
+    const code = String(crypto.randomInt(100000, 1000000));
+    await db.query(`
+        INSERT INTO password_resets (user_id, code_hash, expires_at, attempts) VALUES ($1, $2, NOW() + INTERVAL '15 minutes', 0)
+        ON CONFLICT (user_id) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0
+    `, [user.id, codeHash(user.id, code)]);
+    try {
+        await sendMail(email, 'Your TalkFav password reset code',
+            `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;border-radius:16px;background:#f5f3ff">
+               <h2 style="margin:0 0 8px;color:#7c5cff">TalkFav</h2>
+               <p>Hi ${String(user.name).replace(/[<>&"]/g, '')},</p>
+               <p>Use this code to reset your password. It expires in 15 minutes.</p>
+               <p style="font-size:32px;font-weight:bold;letter-spacing:6px;text-align:center;background:#fff;padding:14px;border-radius:12px">${code}</p>
+               <p style="color:#64748b;font-size:13px">If you didn't ask for this, you can ignore this email.</p>
+             </div>`);
+    } catch (e) {
+        console.error('mail failed:', e.message);
+        return res.status(502).json({ message: 'Could not send the email. Please try again later.' });
+    }
+    res.status(200).json(okMsg);
+}));
+
+app.post('/api/auth/reset', handle(async (req, res) => {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+    const password = String(req.body.password || '');
+    if (password.length < 6 || password.length > 100) return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    const user = (await db.query('SELECT id FROM users WHERE LOWER(email) = $1', [email])).rows[0];
+    const row = user && (await db.query('SELECT * FROM password_resets WHERE user_id = $1', [user.id])).rows[0];
+    if (!row || new Date(row.expires_at) < new Date() || row.attempts >= 5) {
+        return res.status(400).json({ message: 'This code has expired. Please request a new one.' });
+    }
+    if (row.code_hash !== codeHash(user.id, code)) {
+        await db.query('UPDATE password_resets SET attempts = attempts + 1 WHERE user_id = $1', [user.id]);
+        return res.status(400).json({ message: 'Wrong code. ' + Math.max(0, 4 - row.attempts) + ' tries left.' });
+    }
+    await db.query('UPDATE users SET password = $1, password_set = TRUE WHERE id = $2', [await bcrypt.hash(password, 10), user.id]);
+    await db.query('DELETE FROM password_resets WHERE user_id = $1', [user.id]);
+    await revokeSessions(user.id);                                   // sob device theke logout
+    res.status(200).json({ ok: true, message: 'Password changed. Please log in with your new password.' });
+}));
+
+// ==========================================
+// 22. PEOPLE YOU MAY KNOW (mutual friend dekhe)
+// ==========================================
+app.get('/api/users/suggestions', handle(async (req, res) => {
+    const { rows } = await db.query(`
+        WITH mine AS (
+            SELECT CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END AS fid
+            FROM friend_requests WHERE status = 'accepted' AND (sender_id = $1 OR receiver_id = $1)
+        ), fof AS (
+            SELECT CASE WHEN fr.sender_id = m.fid THEN fr.receiver_id ELSE fr.sender_id END AS uid, m.fid
+            FROM friend_requests fr JOIN mine m ON (fr.sender_id = m.fid OR fr.receiver_id = m.fid)
+            WHERE fr.status = 'accepted'
+        )
+        SELECT u.id, u.name, CASE WHEN u.avatar_visibility = 'friends' THEN NULL ELSE u.avatar END AS avatar,
+               COUNT(DISTINCT fof.fid)::int AS mutual
+        FROM fof JOIN users u ON u.id = fof.uid
+        WHERE fof.uid <> $1 AND fof.uid NOT IN (SELECT fid FROM mine) AND NOT u.banned
+          AND NOT EXISTS (SELECT 1 FROM friend_requests x WHERE (x.sender_id = $1 AND x.receiver_id = u.id) OR (x.sender_id = u.id AND x.receiver_id = $1))
+          AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id = $1 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $1))
+        GROUP BY u.id ORDER BY mutual DESC, u.name LIMIT 12
+    `, [req.userId]);
+    res.status(200).json({ users: rows });
+}));
+
+// ==========================================
+// 23. STICKER + LOCATION (message er notun dhoron)
+// ==========================================
+const STICKERS = ['1f431', '1f436', '1f984', '1f43c', '1f98a', '1f438', '1f435', '1f427', '1f43b', '1f430', '1f428', '1f42f', '1f389', '1f496', '1f525', '1f44d', '1f602', '1f60d', '1f973', '1f62d', '1f60e', '1f914', '1f64f', '1f4af', '1f339', '1f355', '2615', '1f382', '1f308', '1f680', '1f47b', '1f381'];
+
+function cleanSticker(a) {
+    const code = String(a && a.name || '');
+    if (!STICKERS.includes(code)) return null;
+    return { type: 'sticker', url: '/assets/stickers/' + code + '.webp', name: code, size: 0, mime: 'image/webp', publicId: null, duration: null };
+}
+
+function cleanLocation(a) {
+    const lat = Number(a && a.lat), lon = Number(a && a.lon);
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+    const la = lat.toFixed(5), lo = lon.toFixed(5);
+    return {
+        type: 'location', url: `https://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=16/${la}/${lo}`,
+        name: la + ',' + lo, size: 0, mime: 'location', publicId: null, duration: null
+    };
+}
+
+// ==========================================
+// 24. SCHEDULED MESSAGES (nirdishto somoye nijei pathabe)
+// ==========================================
+app.post('/api/messages/schedule', handle(async (req, res) => {
+    const group_id = parseInt(req.body.group_id, 10) || null;
+    const receiver_id = group_id ? null : parseInt(req.body.receiver_id, 10);
+    const message = typeof req.body.message === 'string' ? req.body.message.trim() : '';
+    const sendAt = new Date(req.body.send_at);
+    if ((!group_id && !receiver_id) || !message || message.length > 5000) return res.status(400).json({ message: 'Write a message first.' });
+    if (isNaN(sendAt) || sendAt.getTime() < Date.now() + 30 * 1000 || sendAt.getTime() > Date.now() + 30 * 86400000) {
+        return res.status(400).json({ message: 'Pick a time between 1 minute and 30 days from now.' });
+    }
+    if (group_id ? !(await groupAccess(group_id, req.userId)) : !(await isFriend(req.userId, receiver_id))) return res.status(403).json({ message: 'Not allowed.' });
+    const count = (await db.query('SELECT COUNT(*)::int AS n FROM scheduled_messages WHERE sender_id = $1', [req.userId])).rows[0].n;
+    if (count >= 50) return res.status(429).json({ message: 'You can schedule at most 50 messages.' });
+    await db.query('INSERT INTO scheduled_messages (sender_id, receiver_id, group_id, message, send_at) VALUES ($1, $2, $3, $4, $5)',
+        [req.userId, receiver_id, group_id, message, sendAt]);
+    res.status(200).json({ ok: true });
+}));
+
+app.get('/api/messages/scheduled', handle(async (req, res) => {
+    const group_id = parseInt(req.query.group, 10) || null;
+    const user = parseInt(req.query.user, 10) || null;
+    const { rows } = await db.query(`
+        SELECT id, message, send_at FROM scheduled_messages
+        WHERE sender_id = $1 AND ${group_id ? 'group_id = $2' : 'receiver_id = $2'}
+        ORDER BY send_at
+    `, [req.userId, group_id || user]);
+    res.status(200).json({ scheduled: rows });
+}));
+
+app.post('/api/messages/scheduled/:id/cancel', handle(async (req, res) => {
+    const r = await db.query('DELETE FROM scheduled_messages WHERE id = $1 AND sender_id = $2', [parseInt(req.params.id, 10), req.userId]);
+    if (!r.rowCount) return res.status(404).json({ message: 'Not found.' });
+    res.status(200).json({ ok: true });
+}));
+
+// somoy hole pathano (30 sec por por check)
+async function deliverScheduled() {
+    let rows;
+    try { rows = (await db.query('DELETE FROM scheduled_messages WHERE send_at <= NOW() RETURNING *')).rows; }
+    catch (e) { return; }
+    for (const sm of rows) {
+        try {
+            if (sm.group_id) {
+                const g = await groupAccess(sm.group_id, sm.sender_id);
+                if (!g || (g.send_permission === 'admins' && g.role !== 'admin')) continue;
+            } else if (!(await isFriend(sm.sender_id, sm.receiver_id))) continue;
+            const ins = await db.query(
+                'INSERT INTO messages (sender_id, receiver_id, group_id, message, expires_at) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                [sm.sender_id, sm.receiver_id, sm.group_id, sm.message, await expiryFor(sm.group_id ? 'g' : 'u', sm.group_id || sm.receiver_id, sm.sender_id)]
+            );
+            const name = ((await db.query('SELECT name FROM users WHERE id = $1', [sm.sender_id])).rows[0] || {}).name || 'Someone';
+            if (sm.group_id) {
+                await db.query('UPDATE group_members SET last_read_id = $1 WHERE group_id = $2 AND user_id = $3', [ins.rows[0].id, sm.group_id, sm.sender_id]);
+                const members = await groupMemberIds(sm.group_id);
+                emitMany(members, 'group:message', { group_id: sm.group_id, id: ins.rows[0].id, sender_id: sm.sender_id, mentions: [] });
+                const { rows: mem } = await db.query('SELECT user_id FROM group_members WHERE group_id = $1 AND user_id <> $2 AND NOT muted', [sm.group_id, sm.sender_id]);
+                const gname = ((await db.query('SELECT name FROM chat_groups WHERE id = $1', [sm.group_id])).rows[0] || {}).name || 'Group';
+                sendPush(mem.map(m => m.user_id), { title: '👥 ' + gname, body: name.split(' ')[0] + ': ' + previewText(sm.message), tag: 'group-' + sm.group_id, url: '/dashboard.html' });
+            } else {
+                const payload = { id: ins.rows[0].id, sender_id: sm.sender_id, receiver_id: sm.receiver_id };
+                emitToUser(sm.receiver_id, 'message:new', payload);
+                emitToUser(sm.sender_id, 'message:new', payload);
+                if (!(await isDmMuted(sm.receiver_id, sm.sender_id))) sendPush([sm.receiver_id], { title: name, body: previewText(sm.message), tag: 'dm-' + sm.sender_id, url: '/dashboard.html' });
+            }
+        } catch (e) { console.error('scheduled send failed:', e.message); }
+    }
+}
+setInterval(deliverScheduled, 30 * 1000);
+
+// ==========================================
+// 25. CHAT EXPORT (.txt file)
+// ==========================================
+app.get('/api/chats/export', handle(async (req, res) => {
+    const group_id = parseInt(req.query.group, 10) || null;
+    const other = parseInt(req.query.user, 10) || null;
+    let convo, params, title;
+    if (group_id) {
+        const g = await groupAccess(group_id, req.userId);
+        if (!g) return res.status(404).json({ message: 'Chat not found.' });
+        convo = 'm.group_id = $1'; params = [group_id]; title = g.name;
+    } else {
+        if (!other) return res.status(400).json({ message: 'Invalid chat.' });
+        const o = (await db.query('SELECT name FROM users WHERE id = $1', [other])).rows[0];
+        if (!o) return res.status(404).json({ message: 'Chat not found.' });
+        convo = '(m.sender_id = $1 AND m.receiver_id = $2) OR (m.sender_id = $2 AND m.receiver_id = $1)'; params = [req.userId, other]; title = o.name;
+    }
+    params.push(req.userId);
+    const me = '$' + params.length;
+    const { rows } = await db.query(`
+        SELECT m.created_at, m.message, m.is_system, m.deleted_at, m.attachment_type, m.attachment_url, m.attachment_name, u.name
+        FROM messages m JOIN users u ON u.id = m.sender_id
+        LEFT JOIN message_hidden h ON h.message_id = m.id AND h.user_id = ${me}
+        WHERE (${convo}) AND h.message_id IS NULL AND (m.expires_at IS NULL OR m.expires_at > NOW())
+        ORDER BY m.id LIMIT 20000
+    `, params);
+    const lines = ['TalkFav chat with ' + title, 'Exported ' + new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC', ''];
+    rows.forEach(m => {
+        const t = new Date(m.created_at).toISOString().replace('T', ' ').slice(0, 16);
+        let text = m.deleted_at ? '[message unsent]' : m.message;
+        if (!m.deleted_at && m.attachment_type) text = (text ? text + ' ' : '') + '[' + previewText('', m.attachment_type, m.attachment_name) + ': ' + (m.attachment_url || '') + ']';
+        lines.push(m.is_system ? `[${t}] — ${m.name} ${m.message}` : `[${t}] ${m.name}: ${text}`);
+    });
+    const safe = title.replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'chat';
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="talkfav-${safe}.txt"`);
+    res.status(200).send('\ufeff' + lines.join('\r\n'));
+}));
+
+// ==========================================
+// 26. ADMIN PANEL (.env e ADMIN_EMAILS=tomar@gmail.com)
+// ==========================================
+const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+async function isAdmin(userId) {
+    if (!ADMIN_EMAILS.length) return false;
+    const r = await db.query('SELECT LOWER(email) AS e FROM users WHERE id = $1', [userId]);
+    return !!(r.rows[0] && ADMIN_EMAILS.includes(r.rows[0].e));
+}
+const adminOnly = (fn) => handle(async (req, res) => {
+    if (!(await isAdmin(req.userId))) return res.status(403).json({ message: 'Admins only.' });
+    return fn(req, res);
+});
+
+app.get('/api/admin/stats', adminOnly(async (req, res) => {
+    const q = async (sql) => (await db.query(sql)).rows[0].n;
+    res.status(200).json({
+        users: await q('SELECT COUNT(*)::int AS n FROM users'),
+        new_users_7d: await q("SELECT COUNT(*)::int AS n FROM users WHERE created_at > NOW() - INTERVAL '7 days'"),
+        messages: await q('SELECT COUNT(*)::int AS n FROM messages'),
+        messages_today: await q("SELECT COUNT(*)::int AS n FROM messages WHERE created_at > NOW() - INTERVAL '1 day'"),
+        groups: await q('SELECT COUNT(*)::int AS n FROM chat_groups'),
+        open_reports: await q('SELECT COUNT(*)::int AS n FROM user_reports WHERE NOT resolved'),
+        banned: await q('SELECT COUNT(*)::int AS n FROM users WHERE banned'),
+        online: onlineUsers.size
+    });
+}));
+
+app.get('/api/admin/reports', adminOnly(async (req, res) => {
+    const { rows } = await db.query(`
+        SELECT r.id, r.reason, r.details, r.created_at, r.resolved,
+               a.id AS reporter_id, a.name AS reporter, b.id AS reported_id, b.name AS reported, b.email AS reported_email, b.banned
+        FROM user_reports r JOIN users a ON a.id = r.reporter_id JOIN users b ON b.id = r.reported_id
+        ORDER BY r.resolved, r.created_at DESC LIMIT 200
+    `);
+    res.status(200).json({ reports: rows });
+}));
+
+app.post('/api/admin/reports/:id/resolve', adminOnly(async (req, res) => {
+    await db.query('UPDATE user_reports SET resolved = TRUE WHERE id = $1', [parseInt(req.params.id, 10)]);
+    res.status(200).json({ ok: true });
+}));
+
+app.get('/api/admin/users', adminOnly(async (req, res) => {
+    const q = '%' + String(req.query.q || '').trim().slice(0, 50) + '%';
+    const { rows } = await db.query(`
+        SELECT id, name, email, created_at, banned, last_seen_at,
+               (SELECT COUNT(*)::int FROM user_reports r WHERE r.reported_id = users.id) AS reports
+        FROM users WHERE name ILIKE $1 OR email ILIKE $1 ORDER BY created_at DESC LIMIT 50
+    `, [q]);
+    res.status(200).json({ users: rows });
+}));
+
+app.post('/api/admin/users/:id/ban', adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (id === req.userId || (await isAdmin(id))) return res.status(400).json({ message: 'You cannot ban an admin.' });
+    const ban = !!req.body.ban;
+    const r = await db.query('UPDATE users SET banned = $1 WHERE id = $2', [ban, id]);
+    if (!r.rowCount) return res.status(404).json({ message: 'User not found.' });
+    if (ban) await revokeSessions(id);            // sathe sathe sob device theke ber
+    authCache.clear();
     res.status(200).json({ ok: true });
 }));
 
@@ -2122,11 +3053,15 @@ app.get('/api/groups', handle(async (req, res) => {
                     WHEN lm.attachment_type = 'video' THEN '🎬 Video'
                     WHEN lm.attachment_type = 'audio' THEN '🎤 Voice message'
                     WHEN lm.attachment_type = 'file' THEN '📎 ' || lm.attachment_name
+                    WHEN lm.attachment_type = 'gif' THEN '🎞️ GIF'
+                    WHEN lm.attachment_type = 'sticker' THEN '🧸 Sticker'
+                    WHEN lm.attachment_type = 'location' THEN '📍 Location'
                     ELSE '' END AS last_message
         FROM group_members gm
         JOIN chat_groups g ON g.id = gm.group_id
         LEFT JOIN LATERAL (
-            SELECT * FROM messages m WHERE m.group_id = g.id AND m.deleted_at IS NULL ORDER BY m.id DESC LIMIT 1
+            SELECT * FROM messages m WHERE m.group_id = g.id AND m.deleted_at IS NULL
+              AND (m.expires_at IS NULL OR m.expires_at > NOW()) ORDER BY m.id DESC LIMIT 1
         ) lm ON TRUE
         LEFT JOIN users lu ON lu.id = lm.sender_id
         WHERE gm.user_id = $1
@@ -2155,7 +3090,18 @@ app.get('/api/groups/:id', handle(async (req, res) => {
             my_role: g.role, muted: g.muted
         },
         // online shudhu friend der dekhano hoy (gopaniyota)
-        members: rows.map(r => ({ ...r, online: (r.id === req.userId || friendIds.includes(r.id)) ? onlineUsers.has(r.id) : null }))
+        members: await (async () => {
+            const priv = (await db.query('SELECT id, hide_online, avatar_visibility FROM users WHERE id = ANY($1::int[])', [rows.map(r => r.id)])).rows;
+            const pv = Object.fromEntries(priv.map(p => [p.id, p]));
+            return rows.map(r => {
+                const self = r.id === req.userId, fr = friendIds.includes(r.id), p = pv[r.id] || {};
+                return {
+                    ...r,
+                    avatar: (!self && !fr && p.avatar_visibility === 'friends') ? null : r.avatar,
+                    online: (self || (fr && !p.hide_online)) ? onlineUsers.has(r.id) : null
+                };
+            });
+        })()
     });
 }));
 
@@ -2164,6 +3110,20 @@ app.get('/api/groups/:id/messages', handle(async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!id || !(await groupAccess(id, req.userId))) return res.status(404).json({ message: 'Group not found.' });
     const data = await fetchConversation('m.group_id = $1', [id], req.userId, req.query);
+    // Seen by: amar message gulo koto jon porechhe (jara read receipts bondho rakhe na)
+    const { rows: mem } = await db.query(`
+        SELECT gm.user_id, gm.last_read_id, u.read_receipts
+        FROM group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.group_id = $1
+    `, [id]);
+    const meRow = mem.find(r => r.user_id === req.userId);
+    const readers = mem.filter(r => r.user_id !== req.userId && r.read_receipts);
+    data.messages.forEach(m => {
+        if (m.sender_id === req.userId && !m.is_system) {
+            m.seen_count = meRow && meRow.read_receipts ? readers.filter(r => r.last_read_id >= m.id).length : null;
+            m.member_count = mem.length - 1;
+        }
+    });
+    await hideAvatars(data.messages, req.userId);
     res.status(200).json(data);
 }));
 
@@ -2175,6 +3135,11 @@ app.post('/api/groups/:id/read', handle(async (req, res) => {
         WHERE group_id = $1 AND user_id = $2
     `, [id, req.userId]);
     res.status(200).json({ ok: true });
+    // onnora "Seen by" update pabe (read receipts bondho thakle na)
+    try {
+        const me = (await db.query('SELECT read_receipts FROM users WHERE id = $1', [req.userId])).rows[0];
+        if (me && me.read_receipts) emitMany((await groupMemberIds(id)).filter(x => x !== req.userId), 'group:read', { group_id: id, user_id: req.userId });
+    } catch (e) {}
 }));
 
 // Group Name / Description
