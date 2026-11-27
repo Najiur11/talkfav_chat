@@ -222,6 +222,19 @@
             }
         } catch (e) {}
 
+        // Demo account: ek click e dhuke dekha (password chhara)
+        const demoBtn = $('demoBtn');
+        if (demoBtn) demoBtn.addEventListener('click', async () => {
+            demoBtn.disabled = true;
+            try {
+                const r = await postJSON('/api/auth/demo', {});
+                if (!r.ok || !r.user) { showAlert(r.message || 'Demo is not available right now.'); demoBtn.disabled = false; return; }
+                finishLogin(r.user, false);
+                location.href = 'dashboard.html';
+            } catch (e) { showAlert('Could not reach the server.'); demoBtn.disabled = false; }
+        });
+        if (new URLSearchParams(location.search).get('demo') === '1' && demoBtn) demoBtn.click();
+
         $('notYouBtn').addEventListener('click', () => {
             localStorage.removeItem('tf_last');
             location.href = 'index.html';

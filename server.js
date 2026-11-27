@@ -8,6 +8,8 @@ const crypto = require('crypto');
 const { Server } = require('socket.io');
 const dns = require('dns').promises;
 const net = require('net');
+const { base32Encode, verifyTotp } = require('./lib/totp');          // 2FA code
+const { isPrivateIp } = require('./lib/net-safety');                 // SSRF suroksha
 // Push notification library (npm install korle pawa jabe; na thakle push bondho, baki sob chole)
 let webpush = null;
 try { webpush = require('web-push'); } catch (e) { webpush = null; }
@@ -79,6 +81,12 @@ app.get('/landing.html', sendPage('landing.html'));
 app.get('/index.html', sendPage('index.html'));
 app.get('/register.html', sendPage('register.html'));
 app.get('/dashboard.html', sendPage('dashboard.html'));
+app.get('/privacy.html', sendPage('privacy.html'));
+// QR / share link: /u/username -> app e sei manusher profile
+app.get('/u/:username', (req, res) => {
+    const u = String(req.params.username || '').replace(/[^a-zA-Z0-9_.]/g, '').slice(0, 30);
+    res.redirect('/dashboard.html#u=' + encodeURIComponent(u));
+});
 
 // PWA: phone e app hisebe install (manifest + service worker + icon)
 app.get('/manifest.webmanifest', (req, res) => {
@@ -643,6 +651,93 @@ async function setupDatabase() {
         )`);
     console.log('Messages table ready!');
 
+    // Last Seen: shesh kokhon online chhilo
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ');
+
+    // Block: blocker_id je block korechhe, blocked_id jake
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS user_blocks (
+            blocker_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            blocked_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (blocker_id, blocked_id)
+        )`);
+
+    // Report: Aiven er SQL editor e "SELECT * FROM user_reports" diye dekha jabe
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS user_reports (
+            id SERIAL PRIMARY KEY,
+            reporter_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            reported_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            reason VARCHAR(30) NOT NULL,
+            details TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+
+    // file pathanor jonno notun column (age theke table thakleo jog hobe)
+    const attachmentColumns = [
+        'attachment_url TEXT', 'attachment_type VARCHAR(10)', 'attachment_name TEXT',
+        'attachment_size INT', 'attachment_mime VARCHAR(100)', 'attachment_public_id TEXT',
+        'attachment_duration REAL'
+    ];
+    for (const col of attachmentColumns) {
+        await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS ' + col);
+    }
+
+    // ---------- GROUP CHAT ----------
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS chat_groups (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            description TEXT,
+            photo TEXT,
+            photo_public_id TEXT,
+            created_by INT REFERENCES users(id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            add_permission VARCHAR(10) NOT NULL DEFAULT 'admins',
+            edit_permission VARCHAR(10) NOT NULL DEFAULT 'admins',
+            send_permission VARCHAR(10) NOT NULL DEFAULT 'all'
+        )`);
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id INT NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role VARCHAR(10) NOT NULL DEFAULT 'member',
+            joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_read_id INT NOT NULL DEFAULT 0,
+            muted BOOLEAN NOT NULL DEFAULT FALSE,
+            PRIMARY KEY (group_id, user_id)
+        )`);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members (user_id)');
+    // group er message o eki "messages" table e: receiver_id khali, group_id bhora
+    await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_id INT REFERENCES chat_groups(id) ON DELETE CASCADE');
+    await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE messages ALTER COLUMN receiver_id DROP NOT NULL');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_group ON messages (group_id, id)');
+
+    // "Delete for me": ke kon message nijer kach theke lukiyeche
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS message_hidden (
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            message_id INT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_id, message_id)
+        )`);
+
+    // Reaction: protita user ek message e ekta reaction (love/haha/like/wow/fire)
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS message_reactions (
+            message_id INT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            reaction VARCHAR(10) NOT NULL,
+            PRIMARY KEY (message_id, user_id)
+        )`);
+
+    // index: onek message holeo query druto thakbe
+    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages (sender_id, receiver_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages (receiver_id, is_read)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_friend_sender ON friend_requests (sender_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_friend_receiver ON friend_requests (receiver_id)');
+    // ---- porer feature gulo (base table gulo toiri howar por, notun database eo cholbe) ----
     // Cover photo (Cloudinary)
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS cover TEXT');
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS cover_public_id TEXT');
@@ -723,6 +818,17 @@ async function setupDatabase() {
             muted BOOLEAN NOT NULL DEFAULT FALSE,
             PRIMARY KEY (user_id, chat_type, chat_id)
         )`);
+
+    // Profile: @username, bio, link, demo account
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(30)');
+    await db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (LOWER(username)) WHERE username IS NOT NULL');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS bio VARCHAR(200)');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS links TEXT[]');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE chat_settings ADD COLUMN IF NOT EXISTS favorite BOOLEAN NOT NULL DEFAULT FALSE');
+    // aage theke thaka user der jonno nam theke @username banai (talkfav_12 er moto)
+    const { rows: noName } = await db.query('SELECT id, name, email FROM users WHERE username IS NULL LIMIT 5000');
+    for (const u of noName) await assignUsername(u);
 
     // Speed: beshi khoja jayga gulote index
     const idx = [
@@ -845,99 +951,13 @@ async function setupDatabase() {
             fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )`);
 
-    // Last Seen: shesh kokhon online chhilo
-    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ');
-
-    // Block: blocker_id je block korechhe, blocked_id jake
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS user_blocks (
-            blocker_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            blocked_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            PRIMARY KEY (blocker_id, blocked_id)
-        )`);
-
-    // Report: Aiven er SQL editor e "SELECT * FROM user_reports" diye dekha jabe
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS user_reports (
-            id SERIAL PRIMARY KEY,
-            reporter_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            reported_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            reason VARCHAR(30) NOT NULL,
-            details TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )`);
-
-    // file pathanor jonno notun column (age theke table thakleo jog hobe)
-    const attachmentColumns = [
-        'attachment_url TEXT', 'attachment_type VARCHAR(10)', 'attachment_name TEXT',
-        'attachment_size INT', 'attachment_mime VARCHAR(100)', 'attachment_public_id TEXT',
-        'attachment_duration REAL'
-    ];
-    for (const col of attachmentColumns) {
-        await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS ' + col);
-    }
-
-    // ---------- GROUP CHAT ----------
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS chat_groups (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            description TEXT,
-            photo TEXT,
-            photo_public_id TEXT,
-            created_by INT REFERENCES users(id) ON DELETE SET NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            add_permission VARCHAR(10) NOT NULL DEFAULT 'admins',
-            edit_permission VARCHAR(10) NOT NULL DEFAULT 'admins',
-            send_permission VARCHAR(10) NOT NULL DEFAULT 'all'
-        )`);
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS group_members (
-            group_id INT NOT NULL REFERENCES chat_groups(id) ON DELETE CASCADE,
-            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            role VARCHAR(10) NOT NULL DEFAULT 'member',
-            joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            last_read_id INT NOT NULL DEFAULT 0,
-            muted BOOLEAN NOT NULL DEFAULT FALSE,
-            PRIMARY KEY (group_id, user_id)
-        )`);
-    await db.query('CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members (user_id)');
-    // group er message o eki "messages" table e: receiver_id khali, group_id bhora
-    await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_id INT REFERENCES chat_groups(id) ON DELETE CASCADE');
-    await db.query('ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT FALSE');
-    await db.query('ALTER TABLE messages ALTER COLUMN receiver_id DROP NOT NULL');
-    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_group ON messages (group_id, id)');
-
-    // "Delete for me": ke kon message nijer kach theke lukiyeche
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS message_hidden (
-            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            message_id INT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-            PRIMARY KEY (user_id, message_id)
-        )`);
-
-    // Reaction: protita user ek message e ekta reaction (love/haha/like/wow/fire)
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS message_reactions (
-            message_id INT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-            user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            reaction VARCHAR(10) NOT NULL,
-            PRIMARY KEY (message_id, user_id)
-        )`);
-
-    // index: onek message holeo query druto thakbe
-    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages (sender_id, receiver_id)');
-    await db.query('CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages (receiver_id, is_read)');
-    await db.query('CREATE INDEX IF NOT EXISTS idx_friend_sender ON friend_requests (sender_id)');
-    await db.query('CREATE INDEX IF NOT EXISTS idx_friend_receiver ON friend_requests (receiver_id)');
     console.log('All tables ready!');
 }
 
 // ==========================================
 // Login check: register/login chhara sob /api e token lagbe
 // ==========================================
-const PUBLIC_API = ['/register', '/login', '/config', '/auth/google', '/auth/forgot', '/auth/reset', '/auth/2fa', '/logs/client'];
+const PUBLIC_API = ['/register', '/login', '/config', '/auth/google', '/auth/forgot', '/auth/reset', '/auth/2fa', '/logs/client', '/auth/demo'];
 app.use('/api', async (req, res, next) => {
     if (PUBLIC_API.includes(req.path)) return next();
     const header = req.headers.authorization || '';
@@ -995,6 +1015,8 @@ app.post('/api/register', limitRegister, handle(async (req, res) => {
         'INSERT INTO users (name, email, country, phone, password) VALUES ($1, $2, $3, $4, $5)',
         [name, email, country.slice(0, 100) || null, phone, hashedPassword]
     );
+    const nu = (await db.query('SELECT id, name, email FROM users WHERE LOWER(email) = $1', [email])).rows[0];
+    if (nu) await assignUsername(nu);
     res.status(201).json({ message: 'User registered successfully!' });
 }));
 
@@ -1020,13 +1042,14 @@ app.post('/api/login', limitLoginIp, limitLogin, handle(async (req, res) => {
 // 3. SEARCH USERS ROUTE
 // ==========================================
 app.get('/api/users/search', handle(async (req, res) => {
-    const query = String(req.query.query || '').trim();
+    let query = String(req.query.query || '').trim();
+    if (query.startsWith('@')) query = query.slice(1);          // @username diye khoja
     if (!query) return res.status(200).json({ users: [] });
     // ILIKE = boro/choto hater okkhor er parthokko chhara khoje
     // relation: friend / sent (ami pathiyechi) / received (se pathiyechhe) / none
     // block kora (je kono dik theke) manush search e ashbe na
     const { rows } = await db.query(`
-        SELECT u.id, u.name, u.email, u.country,
+        SELECT u.id, u.name, u.email, u.country, u.username,
                CASE WHEN u.avatar_visibility = 'friends' AND COALESCE(fr.status, '') <> 'accepted' THEN NULL ELSE u.avatar END AS avatar,
                CASE WHEN fr.status = 'accepted' THEN 'friend'
                     WHEN fr.status = 'pending' AND fr.sender_id = $2 THEN 'sent'
@@ -1036,7 +1059,7 @@ app.get('/api/users/search', handle(async (req, res) => {
         FROM users u
         LEFT JOIN friend_requests fr
                ON (fr.sender_id = $2 AND fr.receiver_id = u.id) OR (fr.sender_id = u.id AND fr.receiver_id = $2)
-        WHERE (u.name ILIKE $1 OR u.email ILIKE $1) AND u.id <> $2 AND NOT u.banned
+        WHERE (u.name ILIKE $1 OR u.email ILIKE $1 OR u.username ILIKE $1) AND u.id <> $2 AND NOT u.banned
           AND NOT EXISTS (
               SELECT 1 FROM user_blocks b
               WHERE (b.blocker_id = $2 AND b.blocked_id = u.id) OR (b.blocker_id = u.id AND b.blocked_id = $2))
@@ -1049,6 +1072,7 @@ app.get('/api/users/search', handle(async (req, res) => {
 // 4. FRIEND REQUEST ROUTES
 // ==========================================
 app.post('/api/friend-request/send', handle(async (req, res) => {
+    if (await isDemoUser(req.userId)) return res.status(403).json({ message: 'The demo account can only chat with its demo friends.' });
     const sender_id = req.userId;
     const receiver_id = parseInt(req.body.receiver_id, 10);
     if (!receiver_id || receiver_id === sender_id) return res.status(400).json({ message: 'Invalid user.' });
@@ -1105,7 +1129,7 @@ app.post('/api/friend-request/accept', handle(async (req, res) => {
 app.get('/api/friends/:userId', handle(async (req, res) => {
     if (!sameUser(req, res, req.params.userId)) return;
     const { rows } = await db.query(`
-        SELECT DISTINCT u.id, u.name, u.email, u.country, u.phone, u.avatar,
+        SELECT DISTINCT u.id, u.name, u.email, u.country, u.phone, u.avatar, u.username,
                CASE WHEN u.hide_last_seen THEN NULL ELSE u.last_seen_at END AS last_seen_at
         FROM users u
         JOIN friend_requests fr ON (u.id = fr.sender_id OR u.id = fr.receiver_id)
@@ -1263,7 +1287,7 @@ app.get('/api/users/:id/profile', handle(async (req, res) => {
     const blockedMe = blocks.rows.some(r => r.blocker_id === id);
     if (blockedMe && !blockedByMe) return res.status(404).json({ message: 'User not found.' });
 
-    const u = await db.query('SELECT id, name, email, country, avatar, cover, created_at, last_seen_at, hide_last_seen, hide_online, avatar_visibility FROM users WHERE id = $1', [id]);
+    const u = await db.query('SELECT id, name, email, country, avatar, cover, created_at, last_seen_at, hide_last_seen, hide_online, avatar_visibility, username, bio, links FROM users WHERE id = $1', [id]);
     if (!u.rows.length) return res.status(404).json({ message: 'User not found.' });
     const user = u.rows[0];
 
@@ -1302,6 +1326,7 @@ app.get('/api/users/:id/profile', handle(async (req, res) => {
             name: user.name,
             country: user.country,
             avatar: (user.avatar_visibility === 'friends' && !close) ? null : user.avatar,
+            username: user.username, bio: user.bio || '', links: user.links || [],
             cover: user.cover,
             created_at: user.created_at,
             email: close ? user.email : null,
@@ -1822,17 +1847,6 @@ app.get('/api/ice-servers', handle(async (req, res) => {
 const PREVIEW_TTL_DAYS = 7;
 const previewRate = new Map();                     // userId -> { count, start } (minit e 30 bar)
 
-function isPrivateIp(ip) {
-    if (net.isIPv4(ip)) {
-        const [a, b] = ip.split('.').map(Number);
-        return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
-            (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
-    }
-    const low = ip.toLowerCase();
-    if (low.startsWith('::ffff:')) return isPrivateIp(low.slice(7));
-    return low === '::1' || low === '::' || low.startsWith('fc') || low.startsWith('fd') || low.startsWith('fe80');
-}
-
 // link ta ki nirapod public site? (localhost / ghorer router / server er bhitor na)
 async function safePublicUrl(raw) {
     let u;
@@ -2073,6 +2087,7 @@ app.post('/api/auth/google', limitLoginIp, handle(async (req, res) => {
             [name, email, '', randomPass, info.sub, /^https:\/\//.test(info.picture || '') ? info.picture : null]
         );
         user = ins.rows[0];
+        await assignUsername(user);
     }
     res.status(200).json(await loginResult(user, req));
 }));
@@ -2221,7 +2236,7 @@ app.get('/api/messages/saved', handle(async (req, res) => {
 // 13. PIN / ARCHIVE / MUTE CHAT
 // ==========================================
 app.get('/api/chat-settings', handle(async (req, res) => {
-    const { rows } = await db.query('SELECT chat_type, chat_id, pinned_at, archived, muted, wallpaper FROM chat_settings WHERE user_id = $1', [req.userId]);
+    const { rows } = await db.query('SELECT chat_type, chat_id, pinned_at, archived, muted, wallpaper, favorite FROM chat_settings WHERE user_id = $1', [req.userId]);
     res.status(200).json({ settings: rows });
 }));
 
@@ -2243,7 +2258,8 @@ app.post('/api/chat-settings', handle(async (req, res) => {
         else return res.status(400).json({ message: 'Invalid wallpaper.' });
     }
     const cur = (await db.query('SELECT * FROM chat_settings WHERE user_id = $1 AND chat_type = $2 AND chat_id = $3', [req.userId, type, id])).rows[0]
-        || { pinned_at: null, archived: false, muted: false, wallpaper: null };
+        || { pinned_at: null, archived: false, muted: false, wallpaper: null, favorite: false };
+    const favorite = req.body.favorite === undefined ? cur.favorite : !!req.body.favorite;
     const wallpaper = wallpaperChange === undefined ? cur.wallpaper : wallpaperChange;
     let pinned_at = req.body.pinned === undefined ? cur.pinned_at : (req.body.pinned ? new Date() : null);
     let archived = req.body.archived === undefined ? cur.archived : !!req.body.archived;
@@ -2251,10 +2267,10 @@ app.post('/api/chat-settings', handle(async (req, res) => {
     if (req.body.archived === true) pinned_at = null;     // archive korle pin uthe jay
     if (pinned_at) archived = false;                       // pin korle archive theke ber hoy
     await db.query(`
-        INSERT INTO chat_settings (user_id, chat_type, chat_id, pinned_at, archived, muted, wallpaper) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO chat_settings (user_id, chat_type, chat_id, pinned_at, archived, muted, wallpaper, favorite) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (user_id, chat_type, chat_id) DO UPDATE SET pinned_at = EXCLUDED.pinned_at, archived = EXCLUDED.archived,
-            muted = EXCLUDED.muted, wallpaper = EXCLUDED.wallpaper
-    `, [req.userId, type, id, pinned_at, archived, muted, wallpaper]);
+            muted = EXCLUDED.muted, wallpaper = EXCLUDED.wallpaper, favorite = EXCLUDED.favorite
+    `, [req.userId, type, id, pinned_at, archived, muted, wallpaper, favorite]);
     // group er mute group_members e-o (group notification er jonno)
     if (type === 'g' && req.body.muted !== undefined) {
         await db.query('UPDATE group_members SET muted = $1 WHERE group_id = $2 AND user_id = $3', [muted, id, req.userId]);
@@ -2584,20 +2600,41 @@ app.post('/api/users/profile', handle(async (req, res) => {
     if (!name || name.length > 100) return res.status(400).json({ message: 'Name is required (max 100 characters).' });
     if (phone && !/^[+\d][\d\s()-]{3,29}$/.test(phone)) return res.status(400).json({ message: 'Please enter a valid phone number.' });
     if (country.length > 100) return res.status(400).json({ message: 'Country name is too long.' });
+    // @username: 3-20 okkhor, shudhu a-z 0-9 _ .
+    const cur = (await db.query('SELECT username, bio, links FROM users WHERE id = $1', [req.userId])).rows[0];
+    let username = req.body.username === undefined ? cur.username : String(req.body.username || '').trim().replace(/^@/, '').toLowerCase();
+    if (!/^[a-z0-9_.]{3,20}$/.test(username || '')) return res.status(400).json({ message: 'Username must be 3–20 characters: letters, numbers, _ or .', field: 'username' });
+    if (/^[._]|[._]$|\.\./.test(username)) return res.status(400).json({ message: 'Username cannot start or end with . or _', field: 'username' });
+    const taken = await db.query('SELECT 1 FROM users WHERE LOWER(username) = $1 AND id <> $2', [username, req.userId]);
+    if (taken.rows.length) return res.status(400).json({ message: '@' + username + ' is already taken.', field: 'username' });
+    const bio = req.body.bio === undefined ? (cur.bio || '') : String(req.body.bio || '').trim().slice(0, 160);
+    let links = cur.links || [];
+    if (Array.isArray(req.body.links)) {
+        links = [];
+        for (const raw of req.body.links.slice(0, 3)) {
+            const t = String(raw || '').trim();
+            if (!t) continue;
+            let url;
+            try { url = new URL(/^https?:\/\//i.test(t) ? t : 'https://' + t); } catch (e) { return res.status(400).json({ message: 'One of the links is not valid.', field: 'links' }); }
+            if (!['http:', 'https:'].includes(url.protocol) || !url.hostname.includes('.')) return res.status(400).json({ message: 'One of the links is not valid.', field: 'links' });
+            links.push(url.href.slice(0, 300));
+        }
+    }
     const { rows } = await db.query(
-        'UPDATE users SET name = $1, phone = $2, country = $3 WHERE id = $4 RETURNING id, name, email, phone, country',
-        [name, phone, country || null, req.userId]
+        'UPDATE users SET name = $1, phone = $2, country = $3, username = $4, bio = $5, links = $6 WHERE id = $7 RETURNING id, name, email, phone, country, username, bio, links',
+        [name, phone, country || null, username, bio || null, links, req.userId]
     );
     emitMany(await friendIdsOf(req.userId), 'friends:changed', {});      // friend der list e notun nam
     res.status(200).json({ ok: true, user: rows[0] });
 }));
 
 app.get('/api/users/me', handle(async (req, res) => {
-    const { rows } = await db.query('SELECT id, name, email, phone, country, password_set, google_id IS NOT NULL AS google FROM users WHERE id = $1', [req.userId]);
+    const { rows } = await db.query('SELECT id, name, email, phone, country, username, bio, links, is_demo, password_set, google_id IS NOT NULL AS google FROM users WHERE id = $1', [req.userId]);
     res.status(200).json({ user: rows[0], is_admin: await isAdmin(req.userId) });
 }));
 
 app.post('/api/users/password', handle(async (req, res) => {
+    if (await isDemoUser(req.userId)) return res.status(403).json({ message: 'This is not available in the demo account.' });
     const current = String(req.body.current || '');
     const next = String(req.body.password || '');
     if (next.length < 6 || next.length > 100) return res.status(400).json({ message: 'New password must be at least 6 characters.' });
@@ -2658,6 +2695,7 @@ app.post('/api/auth/logout', handle(async (req, res) => {
 
 // Delete Account: sob muche jay (message, group membership, file)
 app.post('/api/users/delete', handle(async (req, res) => {
+    if (await isDemoUser(req.userId)) return res.status(403).json({ message: 'This is not available in the demo account.' });
     if (req.body.confirm !== 'DELETE') return res.status(400).json({ message: 'Type DELETE to confirm.' });
     const u = (await db.query('SELECT password, password_set, cover_public_id FROM users WHERE id = $1', [req.userId])).rows[0];
     if (u.password_set && !(await bcrypt.compare(String(req.body.password || ''), u.password))) {
@@ -3029,43 +3067,6 @@ app.post('/api/admin/errors/clear', adminOnly(async (req, res) => {
 // ==========================================
 // 28. TWO-STEP VERIFICATION (TOTP: Google Authenticator / Microsoft Authenticator)
 // ==========================================
-const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-function base32Encode(buf) {
-    let bits = 0, value = 0, out = '';
-    for (const byte of buf) {
-        value = (value << 8) | byte; bits += 8;
-        while (bits >= 5) { out += B32[(value >>> (bits - 5)) & 31]; bits -= 5; }
-    }
-    if (bits > 0) out += B32[(value << (5 - bits)) & 31];
-    return out;
-}
-function base32Decode(str) {
-    const clean = String(str).toUpperCase().replace(/[^A-Z2-7]/g, '');
-    let bits = 0, value = 0; const out = [];
-    for (const ch of clean) {
-        value = (value << 5) | B32.indexOf(ch); bits += 5;
-        if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
-    }
-    return Buffer.from(out);
-}
-function totpAt(secret, counter) {
-    const buf = Buffer.alloc(8);
-    buf.writeBigUInt64BE(BigInt(counter));
-    const h = crypto.createHmac('sha1', base32Decode(secret)).update(buf).digest();
-    const off = h[h.length - 1] & 15;
-    return String((h.readUInt32BE(off) & 0x7fffffff) % 1000000).padStart(6, '0');
-}
-// ager/porer 30 sec o mane (phone er ghori ektu age-pichhe thakle)
-function verifyTotp(secret, code) {
-    const c = String(code || '').replace(/\s/g, '');
-    if (!/^\d{6}$/.test(c)) return false;
-    const now = Math.floor(Date.now() / 30000);
-    for (let w = -1; w <= 1; w++) {
-        const a = Buffer.from(totpAt(secret, now + w)), b = Buffer.from(c);
-        if (crypto.timingSafeEqual(a, b)) return true;
-    }
-    return false;
-}
 const backupHash = (code) => crypto.createHash('sha256').update(String(code).replace(/[\s-]/g, '').toLowerCase() + ':' + JWT_SECRET).digest('hex');
 
 // login er majhpothe: password thik, ekhon 2FA code lagbe (5 minit er "ticket")
@@ -3128,6 +3129,7 @@ app.get('/api/2fa/status', handle(async (req, res) => {
 
 // chalu korar prothom dhap: notun gopon chabi (app e scan korar jonno)
 app.post('/api/2fa/setup', handle(async (req, res) => {
+    if (await isDemoUser(req.userId)) return res.status(403).json({ message: 'This is not available in the demo account.' });
     const u = (await db.query('SELECT email, totp_enabled FROM users WHERE id = $1', [req.userId])).rows[0];
     if (u.totp_enabled) return res.status(400).json({ message: 'Two-step verification is already on.' });
     const secret = base32Encode(crypto.randomBytes(20));
@@ -3207,6 +3209,115 @@ app.post('/api/users/login-alerts', handle(async (req, res) => {
     await db.query('UPDATE users SET login_alerts = $1 WHERE id = $2', [!!req.body.on, req.userId]);
     res.status(200).json({ ok: true });
 }));
+
+// ==========================================
+// 30. @USERNAME + PROFILE LINK
+// ==========================================
+async function assignUsername(u) {
+    let base = String(u.name || u.email || 'user').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '').slice(0, 14);
+    if (base.length < 3) base = (String(u.email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '') + 'user').slice(0, 14);
+    for (let i = 0; i < 50; i++) {
+        const name = i === 0 ? base : base + (i < 10 ? i : Math.floor(Math.random() * 9000 + 100));
+        try {
+            const r = await db.query('UPDATE users SET username = $1 WHERE id = $2 AND username IS NULL AND NOT EXISTS (SELECT 1 FROM users WHERE LOWER(username) = $1)', [name, u.id]);
+            if (r.rowCount) return name;
+            const already = await db.query('SELECT username FROM users WHERE id = $1', [u.id]);
+            if (already.rows[0] && already.rows[0].username) return already.rows[0].username;
+        } catch (e) { /* eki somoy onno keu nile abar cheshta */ }
+    }
+    return null;
+}
+
+app.get('/api/users/by-username/:username', handle(async (req, res) => {
+    const name = String(req.params.username || '').toLowerCase().replace(/^@/, '');
+    const r = await db.query('SELECT id FROM users WHERE LOWER(username) = $1 AND NOT banned', [name]);
+    if (!r.rows.length) return res.status(404).json({ message: 'No user with this username.' });
+    res.status(200).json({ id: r.rows[0].id });
+}));
+
+app.get('/api/users/username-available', handle(async (req, res) => {
+    const name = String(req.query.u || '').toLowerCase().replace(/^@/, '');
+    if (!/^[a-z0-9_.]{3,20}$/.test(name)) return res.status(200).json({ ok: false, reason: 'format' });
+    const r = await db.query('SELECT 1 FROM users WHERE LOWER(username) = $1 AND id <> $2', [name, req.userId]);
+    res.status(200).json({ ok: !r.rows.length });
+}));
+
+// ==========================================
+// 31. DEMO ACCOUNT (recruiter / visitor ek click e dekhte parbe)
+// ==========================================
+const DEMO_EMAIL = 'demo@talkfav.app';
+async function isDemoUser(id) {
+    const r = await db.query('SELECT is_demo FROM users WHERE id = $1', [id]);
+    return !!(r.rows[0] && r.rows[0].is_demo);
+}
+
+// demo user + 2 jon demo bondhu + kichu chat + ekta group (protidin notun kore)
+async function seedDemo() {
+    const pw = await bcrypt.hash(crypto.randomBytes(18).toString('hex'), 10);     // password diye login kora jabe na
+    const people = [
+        { email: DEMO_EMAIL, name: 'Demo Visitor', username: 'demo', bio: 'Exploring TalkFav 👋', country: 'Bangladesh' },
+        { email: 'nadia.demo@talkfav.app', name: 'Nadia Rahman', username: 'nadia.demo', bio: 'Coffee, books and long voice notes.', country: 'Bangladesh' },
+        { email: 'rafi.demo@talkfav.app', name: 'Rafi Ahmed', username: 'rafi.demo', bio: 'Weekend cricket captain 🏏', country: 'Bangladesh' }
+    ];
+    const ids = [];
+    for (const p of people) {
+        const ex = await db.query('SELECT id FROM users WHERE LOWER(email) = $1', [p.email]);
+        if (ex.rows.length) {
+            ids.push(ex.rows[0].id);
+            await db.query('UPDATE users SET name = $1, bio = $2, is_demo = TRUE, banned = FALSE, totp_enabled = FALSE WHERE id = $3', [p.name, p.bio, ex.rows[0].id]);
+        } else {
+            const ins = await db.query(
+                'INSERT INTO users (name, email, phone, country, password, password_set, is_demo, bio, username) VALUES ($1, $2, $3, $4, $5, FALSE, TRUE, $6, $7) RETURNING id',
+                [p.name, p.email, '+8801700000000', p.country, pw, p.bio, p.username]
+            );
+            ids.push(ins.rows[0].id);
+        }
+    }
+    const [demo, nadia, rafi] = ids;
+    // purono demo chat muche notun kore (onno user der sathe kichu chhui na)
+    await db.query('DELETE FROM messages WHERE sender_id = ANY($1::int[]) OR receiver_id = ANY($1::int[])', [ids]);
+    await db.query('DELETE FROM chat_groups WHERE created_by = ANY($1::int[])', [ids]);
+    await db.query('DELETE FROM friend_requests WHERE sender_id = ANY($1::int[]) OR receiver_id = ANY($1::int[])', [ids]);
+    await db.query('DELETE FROM statuses WHERE user_id = ANY($1::int[])', [ids]);
+    for (const f of [nadia, rafi]) {
+        await db.query("INSERT INTO friend_requests (sender_id, receiver_id, status) VALUES ($1, $2, 'accepted')", [f, demo]);
+    }
+    await db.query("INSERT INTO friend_requests (sender_id, receiver_id, status) VALUES ($1, $2, 'accepted')", [nadia, rafi]);
+    const ago = (min) => new Date(Date.now() - min * 60000);
+    const dm = [
+        [nadia, demo, 'Hey! Welcome to TalkFav 😊', 95], [demo, nadia, 'Thanks! This looks really clean.', 93],
+        [nadia, demo, 'Try sending a voice message or a sticker 🎤', 90], [demo, nadia, 'On it! Video call later?', 60],
+        [nadia, demo, 'Sure, after 8? I will call you 📞', 12],
+        [rafi, demo, 'Cricket on Friday? 🏏', 40], [demo, rafi, 'Count me in!', 38], [rafi, demo, 'Great, I made a group for the team', 35]
+    ];
+    for (const [from, to, text, min] of dm) {
+        await db.query('INSERT INTO messages (sender_id, receiver_id, message, created_at, is_read) VALUES ($1, $2, $3, $4, $5)', [from, to, text, ago(min), from === demo || min > 20]);
+    }
+    const g = await db.query('INSERT INTO chat_groups (name, description, created_by) VALUES ($1, $2, $3) RETURNING id', ['Friday Cricket 🏏', 'Weekend matches and plans', rafi]);
+    const gid = g.rows[0].id;
+    await db.query("INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, 'admin'), ($1, $3, 'member'), ($1, $4, 'member')", [gid, rafi, demo, nadia]);
+    const gm = [[rafi, 'Match starts at 4 PM, field near the lake', 34], [nadia, 'I will bring snacks 🍿', 33], [rafi, '📊 Which time works best?', 32]];
+    let pollMsg = null;
+    for (const [from, text, min] of gm) {
+        const r = await db.query('INSERT INTO messages (sender_id, group_id, message, created_at) VALUES ($1, $2, $3, $4) RETURNING id', [from, gid, text, ago(min)]);
+        pollMsg = r.rows[0].id;
+    }
+    const poll = await db.query('INSERT INTO polls (message_id, question, options, created_by) VALUES ($1, $2, $3, $4) RETURNING id', [pollMsg, 'Which time works best?', JSON.stringify(['4 PM', '5 PM', '6 PM']), rafi]);
+    await db.query('INSERT INTO poll_votes (poll_id, user_id, option_index) VALUES ($1, $2, 0), ($1, $3, 1)', [poll.rows[0].id, rafi, nadia]);
+    await db.query("INSERT INTO statuses (user_id, type, text, bg) VALUES ($1, 'text', 'Good vibes only ✨', '#0E8F5B')", [nadia]);
+    return demo;
+}
+
+const limitDemo = rateLimit({ name: 'demo', windowMs: 15 * 60 * 1000, max: 20, message: 'Too many demo logins.', key: clientIp });
+app.post('/api/auth/demo', limitDemo, handle(async (req, res) => {
+    let r = await db.query('SELECT * FROM users WHERE LOWER(email) = $1', [DEMO_EMAIL]);
+    if (!r.rows.length) { await seedDemo(); r = await db.query('SELECT * FROM users WHERE LOWER(email) = $1', [DEMO_EMAIL]); }
+    const user = r.rows[0];
+    const token = await createSession(user.id, req);
+    res.status(200).json({ message: 'Welcome to the demo!', user: publicUser(user, token) });
+}));
+// protidin demo notun kore (keu kichu bodlale-o)
+setInterval(() => seedDemo().catch(e => console.error('demo seed failed:', e.message)), 24 * 60 * 60 * 1000);
 
 // ==========================================
 // 5c. REACTION / PIN
@@ -3595,6 +3706,7 @@ server.on('error', (err) => {
 setupDatabase()
     .then(() => {
         console.log('Connected to PostgreSQL database');
+        seedDemo().catch(e => console.error('demo seed failed:', e.message));
         server.listen(PORT, () => console.log(`Server is running on port ${PORT} (with realtime)`));
     })
     .catch((err) => {

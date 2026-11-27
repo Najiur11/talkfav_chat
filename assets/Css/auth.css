@@ -350,3 +350,10 @@ a:hover { text-decoration: underline; }
 .link-like { border: none; background: none; padding: 0; color: var(--emerald); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
 [data-theme="dark"] .link-like { color: #6EE7B7; }
 .tf-links { line-height: 2; }
+
+/* demo button */
+.demo-btn { display: block; width: 100%; margin: 18px 0 0; padding: 12px; border-radius: 14px; border: 1.5px dashed var(--field-line); background: transparent; color: var(--text-soft); font: inherit; font-size: 14px; cursor: pointer; }
+.demo-btn strong { color: var(--emerald); }
+[data-theme="dark"] .demo-btn strong { color: #6EE7B7; }
+.demo-btn:hover { border-color: var(--emerald-2); }
+.demo-btn:disabled { opacity: .6; }
