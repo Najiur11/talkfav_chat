@@ -1549,3 +1549,14 @@ body.dash #theme-toggle:hover { color: var(--g-1); }
   body.dash .nav-item svg { width: 23px; height: 23px; }
 }
 @media (max-width: 900px) { body.dash .app.chat-open .sidebar { display: none; } }
+
+
+/* swipe to reply: pichhone ↩ chinho */
+.swipe-hint {
+  position: absolute; left: -44px; top: 50%; transform: translateY(-50%) scale(.6); width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; opacity: 0; pointer-events: none; background: var(--pane); color: var(--text-muted);
+  box-shadow: 0 1px 3px rgba(11, 61, 46, .2); transition: background .15s, color .15s;
+}
+.swipe-hint svg { width: 18px; height: 18px; }
+.swipe-hint.ready { background: var(--g-2); color: #fff; }
+body.dash #messageContainer { touch-action: pan-y; overflow-x: hidden; }

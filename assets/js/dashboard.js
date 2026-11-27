@@ -1440,7 +1440,7 @@ function showComposeBar() {
 
     const { type, msg } = composeMode;
     const info = el('div', 'compose-info');
-    info.appendChild(el('strong', '', type === 'edit' ? 'Editing message' : '↩️ Replying to ' + senderName(msg.sender_id)));
+    info.appendChild(el('strong', '', type === 'edit' ? 'Editing message' : 'Replying to ' + senderName(msg.sender_id)));
     info.appendChild(el('span', '', shortText(previewText(msg), 80)));
     bar.appendChild(info);
 
@@ -1779,6 +1779,7 @@ function setupChatExtras() {
     const box = $('messageContainer');
     setupJumpButton();
     setupSelectClicks();
+    setupSwipeReply();
     // upore scroll korle purono message
     box.addEventListener('scroll', () => { if (box.scrollTop < 150) loadOlder(); }, { passive: true });
 
@@ -2108,6 +2109,67 @@ async function openQrScanner() {
         setTimeout(tick, 350);
     };
     tick();
+}
+
+// =====================================================
+// SWIPE TO REPLY (WhatsApp er moto: message dane tene chhere dile Reply)
+// =====================================================
+function setupSwipeReply() {
+    const box = $('messageContainer');
+    const LIMIT = 80, TRIGGER = 56;            // koto dur tana jay, koto dur tanle Reply
+    let s = null;                              // { bubble, msg, x0, y0, dx, mode, hint, buzzed }
+
+    const reset = () => {
+        if (!s) return;
+        const { bubble, hint } = s;
+        bubble.style.transition = 'transform .22s ease';
+        bubble.style.transform = '';
+        if (hint) { hint.style.transition = 'opacity .2s'; hint.style.opacity = '0'; setTimeout(() => hint.remove(), 220); }
+        setTimeout(() => { bubble.style.transition = ''; }, 230);
+        s = null;
+    };
+
+    box.addEventListener('touchstart', (e) => {
+        if (selectMode || e.touches.length !== 1) return;
+        const bubble = e.target.closest('.msg[data-id]');
+        if (!bubble || e.target.closest('audio, video, input, button.poll-opt')) return;
+        const msg = currentMsgs.find(m => m.id === Number(bubble.dataset.id));
+        if (!msg || msg.deleted_at || msg.is_system) return;
+        const t = e.touches[0];
+        s = { bubble, msg, x0: t.clientX, y0: t.clientY, dx: 0, mode: null, hint: null, buzzed: false };
+    }, { passive: true });
+
+    box.addEventListener('touchmove', (e) => {
+        if (!s) return;
+        const t = e.touches[0];
+        const dx = t.clientX - s.x0, dy = t.clientY - s.y0;
+        if (!s.mode) {
+            if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { s = null; return; }      // upor-niche scroll
+            if (dx > 12 && dx > Math.abs(dy) * 1.4) {
+                s.mode = 'swipe';
+                s.hint = el('span', 'swipe-hint');
+                s.hint.appendChild(icon('reply'));
+                s.bubble.appendChild(s.hint);
+            } else return;
+        }
+        e.preventDefault();                        // tanar somoy page scroll / long-press menu na
+        s.dx = Math.max(0, Math.min(dx * 0.75, LIMIT));
+        s.bubble.style.transform = 'translateX(' + s.dx + 'px)';
+        const p = Math.min(s.dx / TRIGGER, 1);
+        s.hint.style.opacity = String(p);
+        s.hint.style.transform = 'translateY(-50%) scale(' + (0.6 + p * 0.4) + ')';
+        if (p >= 1 && !s.buzzed) { s.buzzed = true; s.hint.classList.add('ready'); if (navigator.vibrate) navigator.vibrate(12); }
+        if (p < 1 && s.buzzed) { s.buzzed = false; s.hint.classList.remove('ready'); }
+    }, { passive: false });
+
+    const end = () => {
+        if (!s) return;
+        const go = s.mode === 'swipe' && s.dx >= TRIGGER ? s.msg : null;
+        reset();
+        if (go) { startReply(go); }
+    };
+    box.addEventListener('touchend', end);
+    box.addEventListener('touchcancel', reset);
 }
 
 // =====================================================
