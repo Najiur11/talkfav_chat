@@ -1409,3 +1409,19 @@ body.dash .call-back svg { width: 20px; height: 20px; }
 body.dash .session-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--active); color: var(--g-1); }
 [data-theme="dark"] body.dash .session-icon { color: #6EE7B7; }
 body.dash .session-icon svg { width: 21px; height: 21px; }
+
+/* 2FA + error log */
+.tf-qr { display: grid; place-items: center; padding: 12px; background: #fff; border-radius: 14px; width: max-content; margin: 4px auto; }
+.tf-qr img, .tf-qr canvas { display: block; }
+.tf-secret { display: block; text-align: center; padding: 10px; border-radius: 10px; background: var(--field); font-size: 15px; letter-spacing: .08em; word-break: break-all; }
+.tf-code { text-align: center; letter-spacing: .35em; font-size: 20px !important; font-weight: 700; }
+.backup-codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.backup-codes code { padding: 10px; border-radius: 10px; background: var(--field); text-align: center; font-size: 15px; letter-spacing: .06em; }
+.admin-err-head { display: flex; justify-content: space-between; align-items: center; }
+.admin-err { border: 1px solid var(--pane-line); border-radius: 10px; padding: 8px 10px; background: var(--hover); }
+.admin-err summary { display: flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13px; }
+.admin-err .err-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-err small { color: var(--text-muted); white-space: nowrap; }
+.err-src { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; background: rgba(220, 38, 38, .12); color: #DC2626; }
+.err-src.client { background: rgba(245, 158, 11, .15); color: #B45309; }
+.admin-err pre { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--text-muted); }

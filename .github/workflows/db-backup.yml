@@ -1,0 +1,51 @@
+# Daily encrypted PostgreSQL backup.
+# Needs two repository secrets (Settings > Secrets and variables > Actions):
+#   DATABASE_URL     - the same connection string Render uses
+#   BACKUP_PASSWORD  - a long random password used to encrypt the backup
+# Backups are kept as workflow artifacts for 14 days. See docs/BACKUP.md to restore.
+name: Database backup
+
+on:
+  schedule:
+    - cron: "0 21 * * *"   # every day 21:00 UTC (3:00 AM in Bangladesh)
+  workflow_dispatch:         # "Run workflow" button for a manual backup
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install PostgreSQL 18 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18
+
+      - name: Dump, compress and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DATABASE_URL" ] || [ -z "$BACKUP_PASSWORD" ]; then
+            echo "Missing DATABASE_URL or BACKUP_PASSWORD secret"; exit 1
+          fi
+          FILE="talkfav-$(date -u +%Y-%m-%d).sql.gz.enc"
+          /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges \
+            | gzip -9 \
+            | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSWORD -out "$FILE"
+          ls -lh "$FILE"
+          echo "FILE=$FILE" >> "$GITHUB_ENV"
+
+      - name: Keep the backup for 14 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE }}
+          path: ${{ env.FILE }}
+          retention-days: 14
+          if-no-files-found: error

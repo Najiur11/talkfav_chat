@@ -344,3 +344,9 @@ a:hover { text-decoration: underline; }
   .auth-card.wide h2 { margin-bottom: 12px; }
   .auth-card.wide .field input { height: 50px; }
 }
+
+/* 2-step verification */
+.code-input { letter-spacing: .3em; font-weight: 700 !important; }
+.link-like { border: none; background: none; padding: 0; color: var(--emerald); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+[data-theme="dark"] .link-like { color: #6EE7B7; }
+.tf-links { line-height: 2; }

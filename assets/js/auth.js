@@ -28,8 +28,82 @@
     }
     // Google login (google-login.js) o eta use kore
     window.TalkFavAuth = {
-        finishLogin: (user) => finishLogin(user, $('remember') ? $('remember').checked : true)
+        finishLogin: (user) => finishLogin(user, $('remember') ? $('remember').checked : true),
+        twoFactor: (ticket) => showTwoFactor(ticket, $('remember') ? $('remember').checked : true)
     };
+
+    // ---------- 2-step verification (login er dwitiyo dhap) ----------
+    function showTwoFactor(ticket, remember) {
+        const card = $('authCard');
+        const loginForm = $('loginForm');
+        if (loginForm) loginForm.hidden = true;
+        card.querySelectorAll('.divider, .social-row, .signup-text, .not-you').forEach(x => { x.hidden = true; });
+        const title = $('cardTitle'), sub = $('formSub');
+        if (title) title.innerHTML = 'Two-step <span class="gradient-text">verification</span>';
+        if (sub) sub.textContent = 'Open your authenticator app and enter the 6-digit code for TalkFav.';
+        const av = $('avatarIn');
+        if (av) av.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg>';
+
+        let form = $('twoFaForm');
+        if (!form) {
+            form = document.createElement('form');
+            form.id = 'twoFaForm';
+            form.noValidate = true;
+            form.innerHTML = `
+              <div class="form-alert" id="tfAlert" role="alert" hidden></div>
+              <div class="input-group">
+                <div class="field">
+                  <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+                  <input type="text" id="tfCode" placeholder=" " inputmode="numeric" autocomplete="one-time-code" maxlength="6" class="code-input">
+                  <label class="float-label" for="tfCode">6-digit code</label>
+                </div>
+                <span class="field-error" id="tfCodeError" aria-live="polite"></span>
+              </div>
+              <button type="submit" class="btn-submit"><span class="label">Verify</span><span class="spinner" aria-hidden="true"></span><svg class="done" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg></button>
+              <p class="signup-text tf-links"><button type="button" class="link-like" id="tfBackupToggle">Use a backup code instead</button><br><a href="index.html">Back to login</a></p>`;
+            card.appendChild(form);
+            let backupMode = false;
+            $('tfBackupToggle').addEventListener('click', () => {
+                backupMode = !backupMode;
+                const inp = $('tfCode');
+                inp.value = '';
+                inp.maxLength = backupMode ? 11 : 6;
+                inp.inputMode = backupMode ? 'text' : 'numeric';
+                form.querySelector('.float-label').textContent = backupMode ? 'Backup code (like ab12c-34d56)' : '6-digit code';
+                $('tfBackupToggle').textContent = backupMode ? 'Use the code from my app' : 'Use a backup code instead';
+                inp.focus();
+            });
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const code = $('tfCode').value.trim();
+                setError('tfCode', '');
+                if (!code) { setError('tfCode', 'Please enter the code.'); shake(); return; }
+                const btn = form.querySelector('.btn-submit');
+                btnState(btn, 'loading');
+                try {
+                    const r = await postJSON('/api/auth/2fa', { ticket: form.dataset.ticket, code });
+                    if (!r.ok || !r.user) {
+                        btnState(btn, null);
+                        if (r.expired) { $('tfAlert').hidden = false; $('tfAlert').className = 'form-alert error'; $('tfAlert').textContent = r.message; setTimeout(() => location.reload(), 1800); return; }
+                        setError('tfCode', r.message || 'Wrong code.');
+                        $('tfCode').select();
+                        shake();
+                        return;
+                    }
+                    finishLogin(r.user, form.dataset.remember === '1');
+                    btnState(btn, 'success');
+                    if (r.backup_left !== null && r.backup_left !== undefined && r.backup_left <= 3) {
+                        alert('You have ' + r.backup_left + ' backup codes left. Make new ones in Settings → Privacy & security.');
+                    }
+                    setTimeout(() => { location.href = 'dashboard.html'; }, reduce ? 0 : 700);
+                } catch (err) { btnState(btn, null); setError('tfCode', 'Could not reach the server. Try again.'); shake(); }
+            });
+        }
+        form.dataset.ticket = ticket;
+        form.dataset.remember = remember ? '1' : '0';
+        form.hidden = false;
+        setTimeout(() => $('tfCode').focus(), 50);
+    }
 
     // aage thekei login kora thakle sorasori dashboard
     try {
@@ -168,6 +242,7 @@
             btnState(btn, 'loading');
             try {
                 const r = await postJSON('/api/login', { email, password });
+                if (r.ok && r.need_2fa) { btnState(btn, null); showTwoFactor(r.ticket, $('remember').checked); return; }
                 if (!r.ok || !r.user) {
                     btnState(btn, null);
                     if (r.field) setError(r.field, r.message);

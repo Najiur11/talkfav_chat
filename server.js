@@ -15,10 +15,54 @@ require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);                       // express + socket.io ek-i server e
-const io = new Server(server, { cors: { origin: '*' } });
+// kon kon site theke API / socket use kora jabe (nijer site + localhost). .env e ALLOWED_ORIGINS diye aro deya jay
+const ALLOWED_ORIGINS = ['http://localhost:3000', 'https://talkfav-chat.onrender.com']
+    .concat(String(process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean));
+const originOk = (origin, cb) => (!origin || ALLOWED_ORIGINS.includes(origin)) ? cb(null, true) : cb(null, false);
+const io = new Server(server, { cors: { origin: originOk } });
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: originOk }));
+app.disable('x-powered-by');                                   // "Express" lukai
+
+// nirapotta header (Helmet er moto, kono package chhara)
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');           // browser file er dhoron onuman korbe na
+    res.setHeader('X-Frame-Options', 'DENY');                     // onno site amader page iframe e dhukate parbe na
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(self), display-capture=(self)');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');   // Google login popup chalbe
+    if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+});
+
+// ---------- Rate limit (ekjon beshi request dile kichukkhon atkano) ----------
+const rateBuckets = new Map();
+function rateLimit({ name, windowMs, max, key, message }) {
+    return (req, res, next) => {
+        const k = name + ':' + key(req);
+        const now = Date.now();
+        let b = rateBuckets.get(k);
+        if (!b || now - b.start > windowMs) { b = { start: now, count: 0 }; rateBuckets.set(k, b); }
+        b.count++;
+        if (b.count > max) {
+            const wait = Math.ceil((b.start + windowMs - now) / 1000);
+            res.setHeader('Retry-After', String(wait));
+            return res.status(429).json({ message: (message || 'Too many attempts.') + ' Please try again in ' + (wait > 90 ? Math.ceil(wait / 60) + ' minutes.' : wait + ' seconds.'), retry_after: wait });
+        }
+        next();
+    };
+}
+const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+// purono bucket muche felo (memory jeno na bhore)
+setInterval(() => { const now = Date.now(); for (const [k, b] of rateBuckets) if (now - b.start > 60 * 60 * 1000) rateBuckets.delete(k); }, 10 * 60 * 1000);
+
+const limitLogin = rateLimit({ name: 'login', windowMs: 15 * 60 * 1000, max: 10, message: 'Too many login attempts.',
+    key: (req) => clientIp(req) + '|' + String((req.body && req.body.email) || '').toLowerCase() });
+const limitLoginIp = rateLimit({ name: 'login-ip', windowMs: 15 * 60 * 1000, max: 40, message: 'Too many login attempts.', key: clientIp });
+const limitRegister = rateLimit({ name: 'register', windowMs: 60 * 60 * 1000, max: 8, message: 'Too many accounts created from this network.', key: clientIp });
+const limitTwoFa = rateLimit({ name: '2fa', windowMs: 15 * 60 * 1000, max: 10, message: 'Too many code attempts.', key: clientIp });
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -680,6 +724,40 @@ async function setupDatabase() {
             PRIMARY KEY (user_id, chat_type, chat_id)
         )`);
 
+    // Speed: beshi khoja jayga gulote index
+    const idx = [
+        'CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users (LOWER(email))',
+        'CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver_id ON messages (sender_id, receiver_id, id)',
+        'CREATE INDEX IF NOT EXISTS idx_messages_receiver_sender_id ON messages (receiver_id, sender_id, id)',
+        'CREATE INDEX IF NOT EXISTS idx_messages_attach_pid ON messages (attachment_public_id) WHERE attachment_public_id IS NOT NULL',
+        'CREATE INDEX IF NOT EXISTS idx_friend_status ON friend_requests (status, sender_id, receiver_id)',
+        'CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions (message_id)',
+        'CREATE INDEX IF NOT EXISTS idx_hidden_user ON message_hidden (user_id, message_id)',
+        'CREATE INDEX IF NOT EXISTS idx_status_views_status ON status_views (status_id)'
+    ];
+    for (const q of idx) { try { await db.query(q); } catch (e) { console.error('index failed:', e.message); } }
+
+    // Error log (server + browser er bhul)
+    await db.query(`
+        CREATE TABLE IF NOT EXISTS error_logs (
+            id SERIAL PRIMARY KEY,
+            source VARCHAR(10) NOT NULL,
+            message TEXT NOT NULL,
+            stack TEXT,
+            path TEXT,
+            user_id INT,
+            user_agent TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_error_logs_time ON error_logs (created_at DESC)');
+
+    // 2FA (Google Authenticator)
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_pending TEXT');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup TEXT[]');
+    await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS login_alerts BOOLEAN NOT NULL DEFAULT TRUE');
+
     // Account: session, password reset, ban, admin
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT FALSE');
     await db.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_revoked_at TIMESTAMPTZ');
@@ -859,7 +937,7 @@ async function setupDatabase() {
 // ==========================================
 // Login check: register/login chhara sob /api e token lagbe
 // ==========================================
-const PUBLIC_API = ['/register', '/login', '/config', '/auth/google', '/auth/forgot', '/auth/reset'];
+const PUBLIC_API = ['/register', '/login', '/config', '/auth/google', '/auth/forgot', '/auth/reset', '/auth/2fa', '/logs/client'];
 app.use('/api', async (req, res, next) => {
     if (PUBLIC_API.includes(req.path)) return next();
     const header = req.headers.authorization || '';
@@ -886,6 +964,7 @@ const handle = (fn) => async (req, res) => {
         await fn(req, res);
     } catch (err) {
         console.error(req.method, req.path, '->', err.message);
+        logError('server', err.message, err.stack, req.method + ' ' + req.path, req.userId, req.headers['user-agent']);
         if (!res.headersSent) res.status(500).json({ message: 'Server error. Please try again.' });
     }
 };
@@ -893,7 +972,7 @@ const handle = (fn) => async (req, res) => {
 // ==========================================
 // 1. User Registration Route
 // ==========================================
-app.post('/api/register', handle(async (req, res) => {
+app.post('/api/register', limitRegister, handle(async (req, res) => {
     const name = String(req.body.name || '').trim();
     const email = String(req.body.email || '').trim().toLowerCase();
     const country = String(req.body.country || '').trim();
@@ -922,7 +1001,7 @@ app.post('/api/register', handle(async (req, res) => {
 // ==========================================
 // 2. User Login Route
 // ==========================================
-app.post('/api/login', handle(async (req, res) => {
+app.post('/api/login', limitLoginIp, limitLogin, handle(async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Email and password are required!' });
 
@@ -934,19 +1013,7 @@ app.post('/api/login', handle(async (req, res) => {
     if (!isMatch) return res.status(400).json({ message: 'Wrong password. Please try again.', field: 'password' });
     if (user.banned) return res.status(403).json({ message: 'This account has been suspended.' });
 
-    res.status(200).json({
-        message: 'Login successful!',
-        user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            country: user.country,
-            phone: user.phone,
-            avatar: user.avatar || null,
-            cover: user.cover || null,
-            token: await createSession(user.id, req)
-        }
-    });
+    res.status(200).json(await loginResult(user, req));
 }));
 
 // ==========================================
@@ -1955,7 +2022,7 @@ app.get('/api/config', (req, res) => {
 // 9. GOOGLE LOGIN
 // Browser Google theke ekta "ID token" pay; amra Google ke diyei seta jachai kori
 // ==========================================
-app.post('/api/auth/google', handle(async (req, res) => {
+app.post('/api/auth/google', limitLoginIp, handle(async (req, res) => {
     if (!GOOGLE_CLIENT_ID) return res.status(503).json({ message: 'Google login is not set up yet.' });
     const credential = typeof req.body.credential === 'string' ? req.body.credential : '';
     const accessToken = typeof req.body.access_token === 'string' ? req.body.access_token : '';
@@ -2007,13 +2074,7 @@ app.post('/api/auth/google', handle(async (req, res) => {
         );
         user = ins.rows[0];
     }
-    res.status(200).json({
-        message: 'Login successful!',
-        user: {
-            id: user.id, name: user.name, email: user.email, country: user.country, phone: user.phone,
-            avatar: user.avatar || null, cover: user.cover || null, token: await createSession(user.id, req)
-        }
-    });
+    res.status(200).json(await loginResult(user, req));
 }));
 
 // ==========================================
@@ -2925,6 +2986,225 @@ app.post('/api/admin/users/:id/ban', adminOnly(async (req, res) => {
     if (!r.rowCount) return res.status(404).json({ message: 'User not found.' });
     if (ban) await revokeSessions(id);            // sathe sathe sob device theke ber
     authCache.clear();
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
+// 27. ERROR LOG (server + browser)
+// ==========================================
+function logError(source, message, stack, path, userId, ua) {
+    db.query(
+        'INSERT INTO error_logs (source, message, stack, path, user_id, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
+        [source, String(message || 'Unknown error').slice(0, 1000), stack ? String(stack).slice(0, 4000) : null,
+         path ? String(path).slice(0, 300) : null, userId || null, ua ? String(ua).slice(0, 300) : null]
+    ).catch(() => {});
+}
+process.on('unhandledRejection', (err) => { console.error('unhandledRejection:', err); logError('server', err && err.message || String(err), err && err.stack, 'unhandledRejection'); });
+// 30 din er purono log muche felo
+setInterval(() => db.query("DELETE FROM error_logs WHERE created_at < NOW() - INTERVAL '30 days'").catch(() => {}), 24 * 60 * 60 * 1000);
+
+// browser er bhul (dashboard.js pathay). login chharao, tai rate limit
+const limitClientLog = rateLimit({ name: 'clientlog', windowMs: 60 * 1000, max: 20, key: clientIp });
+app.post('/api/logs/client', limitClientLog, (req, res) => {
+    const b = req.body || {};
+    const header = req.headers.authorization || '';
+    const data = decodeToken(header.startsWith('Bearer ') ? header.slice(7) : '');
+    logError('client', b.message, b.stack, b.path, data && data.uid, req.headers['user-agent']);
+    res.status(204).end();
+});
+
+app.get('/api/admin/errors', adminOnly(async (req, res) => {
+    const { rows } = await db.query(`
+        SELECT e.id, e.source, e.message, e.stack, e.path, e.user_agent, e.created_at, u.name AS user_name
+        FROM error_logs e LEFT JOIN users u ON u.id = e.user_id
+        ORDER BY e.created_at DESC LIMIT 100
+    `);
+    res.status(200).json({ errors: rows });
+}));
+app.post('/api/admin/errors/clear', adminOnly(async (req, res) => {
+    await db.query('DELETE FROM error_logs');
+    res.status(200).json({ ok: true });
+}));
+
+// ==========================================
+// 28. TWO-STEP VERIFICATION (TOTP: Google Authenticator / Microsoft Authenticator)
+// ==========================================
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function base32Encode(buf) {
+    let bits = 0, value = 0, out = '';
+    for (const byte of buf) {
+        value = (value << 8) | byte; bits += 8;
+        while (bits >= 5) { out += B32[(value >>> (bits - 5)) & 31]; bits -= 5; }
+    }
+    if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+    return out;
+}
+function base32Decode(str) {
+    const clean = String(str).toUpperCase().replace(/[^A-Z2-7]/g, '');
+    let bits = 0, value = 0; const out = [];
+    for (const ch of clean) {
+        value = (value << 5) | B32.indexOf(ch); bits += 5;
+        if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
+    }
+    return Buffer.from(out);
+}
+function totpAt(secret, counter) {
+    const buf = Buffer.alloc(8);
+    buf.writeBigUInt64BE(BigInt(counter));
+    const h = crypto.createHmac('sha1', base32Decode(secret)).update(buf).digest();
+    const off = h[h.length - 1] & 15;
+    return String((h.readUInt32BE(off) & 0x7fffffff) % 1000000).padStart(6, '0');
+}
+// ager/porer 30 sec o mane (phone er ghori ektu age-pichhe thakle)
+function verifyTotp(secret, code) {
+    const c = String(code || '').replace(/\s/g, '');
+    if (!/^\d{6}$/.test(c)) return false;
+    const now = Math.floor(Date.now() / 30000);
+    for (let w = -1; w <= 1; w++) {
+        const a = Buffer.from(totpAt(secret, now + w)), b = Buffer.from(c);
+        if (crypto.timingSafeEqual(a, b)) return true;
+    }
+    return false;
+}
+const backupHash = (code) => crypto.createHash('sha256').update(String(code).replace(/[\s-]/g, '').toLowerCase() + ':' + JWT_SECRET).digest('hex');
+
+// login er majhpothe: password thik, ekhon 2FA code lagbe (5 minit er "ticket")
+function signTicket(userId) {
+    const payload = Buffer.from(JSON.stringify({ uid: userId, p: '2fa', exp: Date.now() + 5 * 60 * 1000 })).toString('base64url');
+    const sig = crypto.createHmac('sha256', JWT_SECRET + ':2fa').update(payload).digest('base64url');
+    return payload + '.' + sig;
+}
+function readTicket(ticket) {
+    const [payload, sig] = String(ticket || '').split('.');
+    if (!payload || !sig) return null;
+    const good = crypto.createHmac('sha256', JWT_SECRET + ':2fa').update(payload).digest('base64url');
+    if (sig.length !== good.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return null;
+    try { const d = JSON.parse(Buffer.from(payload, 'base64url').toString()); return d.p === '2fa' && d.exp > Date.now() ? d.uid : null; } catch (e) { return null; }
+}
+
+function publicUser(user, token) {
+    return { id: user.id, name: user.name, email: user.email, country: user.country, phone: user.phone,
+             avatar: user.avatar || null, cover: user.cover || null, token };
+}
+
+// password / Google thik hole: 2FA chalu thakle ticket, na hole session + notun device hole alert
+async function loginResult(user, req) {
+    if (user.totp_enabled) return { need_2fa: true, ticket: signTicket(user.id), message: 'Enter the code from your authenticator app.' };
+    const isNew = await isNewDevice(user.id, req);
+    const token = await createSession(user.id, req);
+    if (isNew) sendLoginAlert(user, req).catch(e => console.error('login alert failed:', e.message));
+    return { message: 'Login successful!', user: publicUser(user, token) };
+}
+
+app.post('/api/auth/2fa', limitTwoFa, handle(async (req, res) => {
+    const uid = readTicket(req.body.ticket);
+    if (!uid) return res.status(401).json({ message: 'This sign-in expired. Please log in again.', expired: true });
+    const user = (await db.query('SELECT * FROM users WHERE id = $1', [uid])).rows[0];
+    if (!user || user.banned || !user.totp_enabled) return res.status(401).json({ message: 'Please log in again.', expired: true });
+    const code = String(req.body.code || '').trim();
+    let ok = verifyTotp(user.totp_secret, code);
+    let usedBackup = false;
+    if (!ok && code.replace(/[\s-]/g, '').length === 10) {
+        // backup code (ekbar-i chole)
+        const h = backupHash(code);
+        const list = user.totp_backup || [];
+        if (list.includes(h)) {
+            ok = true; usedBackup = true;
+            await db.query('UPDATE users SET totp_backup = $1 WHERE id = $2', [list.filter(x => x !== h), user.id]);
+        }
+    }
+    if (!ok) return res.status(400).json({ message: 'Wrong code. Check your authenticator app and try again.', field: 'code' });
+    const isNew = await isNewDevice(user.id, req);
+    const token = await createSession(user.id, req);
+    if (isNew) sendLoginAlert(user, req).catch(() => {});
+    const left = usedBackup ? (user.totp_backup || []).length - 1 : null;
+    res.status(200).json({ message: 'Login successful!', user: publicUser(user, token), backup_left: left });
+}));
+
+app.get('/api/2fa/status', handle(async (req, res) => {
+    const u = (await db.query('SELECT totp_enabled, totp_backup, login_alerts FROM users WHERE id = $1', [req.userId])).rows[0];
+    res.status(200).json({ enabled: !!u.totp_enabled, backup_left: (u.totp_backup || []).length, login_alerts: u.login_alerts });
+}));
+
+// chalu korar prothom dhap: notun gopon chabi (app e scan korar jonno)
+app.post('/api/2fa/setup', handle(async (req, res) => {
+    const u = (await db.query('SELECT email, totp_enabled FROM users WHERE id = $1', [req.userId])).rows[0];
+    if (u.totp_enabled) return res.status(400).json({ message: 'Two-step verification is already on.' });
+    const secret = base32Encode(crypto.randomBytes(20));
+    await db.query('UPDATE users SET totp_pending = $1 WHERE id = $2', [secret, req.userId]);
+    const label = encodeURIComponent('TalkFav:' + u.email);
+    res.status(200).json({ secret, otpauth: `otpauth://totp/${label}?secret=${secret}&issuer=TalkFav&algorithm=SHA1&digits=6&period=30` });
+}));
+
+// app er code diye jachai -> chalu + 8 ta backup code (ekbar-i dekhai)
+app.post('/api/2fa/enable', handle(async (req, res) => {
+    const u = (await db.query('SELECT totp_pending FROM users WHERE id = $1', [req.userId])).rows[0];
+    if (!u.totp_pending) return res.status(400).json({ message: 'Start the setup again.' });
+    if (!verifyTotp(u.totp_pending, req.body.code)) return res.status(400).json({ message: 'Wrong code. Try the newest code from your app.', field: 'code' });
+    const codes = Array.from({ length: 8 }, () => {
+        const raw = crypto.randomBytes(5).toString('hex');
+        return raw.slice(0, 5) + '-' + raw.slice(5);
+    });
+    await db.query('UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled = TRUE, totp_backup = $1 WHERE id = $2',
+        [codes.map(backupHash), req.userId]);
+    await revokeSessions(req.userId, req.sessionId);           // onno device e abar login (code soho)
+    res.status(200).json({ ok: true, backup_codes: codes });
+}));
+
+// bondho: app er code othoba password lagbe
+app.post('/api/2fa/disable', handle(async (req, res) => {
+    const u = (await db.query('SELECT password, password_set, totp_secret, totp_enabled FROM users WHERE id = $1', [req.userId])).rows[0];
+    if (!u.totp_enabled) return res.status(400).json({ message: 'Two-step verification is already off.' });
+    const byCode = verifyTotp(u.totp_secret, req.body.code);
+    const byPass = u.password_set && req.body.password && await bcrypt.compare(String(req.body.password), u.password);
+    if (!byCode && !byPass) return res.status(400).json({ message: 'Enter a code from your app (or your password).' });
+    await db.query('UPDATE users SET totp_enabled = FALSE, totp_secret = NULL, totp_pending = NULL, totp_backup = NULL WHERE id = $1', [req.userId]);
+    res.status(200).json({ ok: true });
+}));
+
+// notun backup code (purono gulo batil)
+app.post('/api/2fa/backup', handle(async (req, res) => {
+    const u = (await db.query('SELECT totp_secret, totp_enabled FROM users WHERE id = $1', [req.userId])).rows[0];
+    if (!u.totp_enabled) return res.status(400).json({ message: 'Turn on two-step verification first.' });
+    if (!verifyTotp(u.totp_secret, req.body.code)) return res.status(400).json({ message: 'Wrong code.', field: 'code' });
+    const codes = Array.from({ length: 8 }, () => { const r = crypto.randomBytes(5).toString('hex'); return r.slice(0, 5) + '-' + r.slice(5); });
+    await db.query('UPDATE users SET totp_backup = $1 WHERE id = $2', [codes.map(backupHash), req.userId]);
+    res.status(200).json({ ok: true, backup_codes: codes });
+}));
+
+// ==========================================
+// 29. NOTUN DEVICE E LOGIN HOLE SOTORKOTA (email + push)
+// ==========================================
+async function isNewDevice(userId, req) {
+    const ua = String(req.headers['user-agent'] || '').slice(0, 300);
+    const { rows } = await db.query('SELECT user_agent FROM sessions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50', [userId]);
+    if (!rows.length) return false;                              // ekdom prothom login: alert na
+    const dev = deviceName(ua);
+    return !rows.some(r => deviceName(r.user_agent) === dev);    // eki browser + OS aage chhilo na
+}
+
+async function sendLoginAlert(user, req) {
+    const u = (await db.query('SELECT login_alerts FROM users WHERE id = $1', [user.id])).rows[0];
+    if (!u || !u.login_alerts) return;
+    const device = deviceName(req.headers['user-agent']);
+    const ip = clientIp(req).replace(/(\d+)\.(\d+)$/, 'x.x');
+    const when = new Date().toUTCString();
+    sendPush([user.id], { title: '🔐 New login to TalkFav', body: device + ' · ' + when, tag: 'login-alert', url: '/dashboard.html' });
+    if (!mailReady) return;
+    const safe = (x) => String(x).replace(/[<>&"]/g, '');
+    await sendMail(user.email, 'New login to your TalkFav account',
+        `<div style="font-family:Arial,sans-serif;max-width:440px;margin:auto;padding:24px;border-radius:16px;background:#F0FAF5">
+           <h2 style="margin:0 0 8px;color:#0E8F5B">TalkFav</h2>
+           <p>Hi ${safe(user.name)},</p>
+           <p>Your account was just used to log in on a new device:</p>
+           <p style="background:#fff;padding:12px 14px;border-radius:12px;line-height:1.6"><b>${safe(device)}</b><br>IP: ${safe(ip)}<br>${safe(when)}</p>
+           <p>If this was you, you don't need to do anything.</p>
+           <p style="color:#B91C1C"><b>If this wasn't you</b>, open TalkFav → Settings → Privacy &amp; security, change your password and log out other devices.</p>
+         </div>`);
+}
+
+app.post('/api/users/login-alerts', handle(async (req, res) => {
+    await db.query('UPDATE users SET login_alerts = $1 WHERE id = $2', [!!req.body.on, req.userId]);
     res.status(200).json({ ok: true });
 }));
 

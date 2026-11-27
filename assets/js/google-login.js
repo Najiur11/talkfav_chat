@@ -25,6 +25,7 @@
             });
             const result = await r.json();
             if (!r.ok) { alert(result.message || 'Google sign-in failed.'); return; }
+            if (result.need_2fa && window.TalkFavAuth && window.TalkFavAuth.twoFactor) { window.TalkFavAuth.twoFactor(result.ticket); return; }
             if (window.TalkFavAuth) window.TalkFavAuth.finishLogin(result.user);   // Remember me + "Welcome back"
             else localStorage.setItem('user', JSON.stringify(result.user));
             window.location.href = 'dashboard.html';

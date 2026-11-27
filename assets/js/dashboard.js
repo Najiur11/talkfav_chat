@@ -1834,6 +1834,146 @@ function setupChatExtras() {
 }
 
 // =====================================================
+// TWO-STEP VERIFICATION (Settings > Privacy & security)
+// =====================================================
+function loadQrLib() {
+    if (window.QRCode) return Promise.resolve(true);
+    return new Promise(resolve => {
+        const sc = document.createElement('script');
+        sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+        sc.onload = () => resolve(!!window.QRCode);
+        sc.onerror = () => resolve(false);
+        document.head.appendChild(sc);
+    });
+}
+
+function showBackupCodes(box, codes) {
+    box.innerHTML = '';
+    box.appendChild(el('p', 'muted-note', 'Save these backup codes somewhere safe. Each one works once if you lose your phone. They will not be shown again.'));
+    const grid = el('div', 'backup-codes');
+    codes.forEach(c => grid.appendChild(el('code', '', c)));
+    box.appendChild(grid);
+    const row = el('div', 'fwd-actions');
+    const copy = el('button', 'btn-sm ghost', 'Copy');
+    copy.type = 'button';
+    copy.addEventListener('click', () => { navigator.clipboard && navigator.clipboard.writeText(codes.join('\n')); showToast('Backup codes', 'Copied'); });
+    const dl = el('button', 'btn-sm ghost', 'Download');
+    dl.type = 'button';
+    dl.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob(['TalkFav backup codes\n\n' + codes.join('\n') + '\n'], { type: 'text/plain' }));
+        a.download = 'talkfav-backup-codes.txt';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+    });
+    const done = el('button', 'btn-sm', 'Done');
+    done.type = 'button';
+    done.addEventListener('click', () => { closeModal(); if (activeTab === 'settings') renderPane(); });
+    row.appendChild(copy); row.appendChild(dl); row.appendChild(done);
+    box.appendChild(row);
+}
+
+async function open2FA() {
+    const box = openModal('Two-step verification');
+    const body = el('div', 'group-form');
+    body.appendChild(el('p', 'muted-note', 'Loading...'));
+    box.appendChild(body);
+    let st = {};
+    try { st = await request('/api/2fa/status'); } catch (e) {}
+    if (!$('modalOverlay')) return;
+    body.innerHTML = '';
+    const codeInput = (ph) => { const i = el('input', 'picker-search tf-code'); i.type = 'text'; i.inputMode = 'numeric'; i.maxLength = 6; i.placeholder = ph || '6-digit code'; i.autocomplete = 'one-time-code'; return i; };
+
+    if (!st.enabled) {
+        body.appendChild(el('p', '', 'Add an extra lock: after your password, TalkFav will ask for a code from an authenticator app on your phone.'));
+        const start = el('button', 'btn-sm', 'Set up');
+        start.type = 'button';
+        body.appendChild(start);
+        start.addEventListener('click', async () => {
+            start.disabled = true;
+            const r = await postJSON('/api/2fa/setup', {}).catch(() => ({}));
+            if (!r.secret) { alert(r.message || 'Could not start.'); start.disabled = false; return; }
+            body.innerHTML = '';
+            body.appendChild(el('p', '', '1. Install Google Authenticator or Microsoft Authenticator on your phone.'));
+            body.appendChild(el('p', '', '2. In the app, tap + and scan this QR code:'));
+            const qr = el('div', 'tf-qr');
+            body.appendChild(qr);
+            if (await loadQrLib()) new window.QRCode(qr, { text: r.otpauth, width: 180, height: 180, colorDark: '#0B3D2E', colorLight: '#ffffff' });
+            else qr.appendChild(el('small', 'muted-note', 'Could not load the QR code. Use the key below.'));
+            body.appendChild(el('small', 'muted-note', 'Can\u2019t scan? Enter this key in the app:'));
+            body.appendChild(el('code', 'tf-secret', r.secret.replace(/(.{4})/g, '$1 ').trim()));
+            body.appendChild(el('p', '', '3. Enter the 6-digit code the app shows:'));
+            const inp = codeInput();
+            body.appendChild(inp);
+            const go = el('button', 'btn-sm', 'Turn on');
+            go.type = 'button';
+            body.appendChild(go);
+            inp.focus();
+            go.addEventListener('click', async () => {
+                go.disabled = true;
+                const e = await postJSON('/api/2fa/enable', { code: inp.value.trim() }).catch(() => ({}));
+                go.disabled = false;
+                if (!e.ok) { alert(e.message || 'Wrong code.'); inp.select(); return; }
+                showToast('Two-step verification', 'On');
+                showBackupCodes(body, e.backup_codes);
+            });
+        });
+        return;
+    }
+
+    body.appendChild(el('p', '', 'Two-step verification is on. You need a code from your authenticator app when you log in on a new device.'));
+    body.appendChild(el('small', 'muted-note', 'Backup codes left: ' + st.backup_left));
+    const inp = codeInput('Code from your app');
+    body.appendChild(inp);
+    const row = el('div', 'fwd-actions');
+    const newCodes = el('button', 'btn-sm ghost', 'New backup codes');
+    newCodes.type = 'button';
+    newCodes.addEventListener('click', async () => {
+        const r = await postJSON('/api/2fa/backup', { code: inp.value.trim() }).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Enter the code from your app first.'); return; }
+        showBackupCodes(body, r.backup_codes);
+    });
+    const off = el('button', 'btn-sm danger', 'Turn off');
+    off.type = 'button';
+    off.addEventListener('click', async () => {
+        let payload = { code: inp.value.trim() };
+        if (!payload.code) {
+            const pw = prompt('Enter a code from your app, or your password, to turn this off:');
+            if (!pw) return;
+            payload = /^\d{6}$/.test(pw) ? { code: pw } : { password: pw };
+        }
+        if (!confirm('Turn off two-step verification?')) return;
+        const r = await postJSON('/api/2fa/disable', payload).catch(() => ({}));
+        if (!r.ok) { alert(r.message || 'Could not turn off.'); return; }
+        closeModal();
+        showToast('Two-step verification', 'Off');
+        if (activeTab === 'settings') renderPane();
+    });
+    row.appendChild(newCodes); row.appendChild(off);
+    body.appendChild(row);
+}
+
+// =====================================================
+// BROWSER ER BHUL SERVER E PATHANO (Admin panel e dekha jabe)
+// =====================================================
+(function reportErrors() {
+    let sent = 0;
+    const send = (message, stack) => {
+        if (sent >= 5 || !message) return;                // ek page e 5 tar beshi na
+        sent++;
+        try {
+            fetch(API + '/api/logs/client', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ((currentUser && currentUser.token) || '') },
+                body: JSON.stringify({ message: String(message).slice(0, 500), stack: String(stack || '').slice(0, 2000), path: location.pathname })
+            }).catch(() => {});
+        } catch (e) {}
+    };
+    window.addEventListener('error', (e) => send(e.message, e.error && e.error.stack));
+    window.addEventListener('unhandledrejection', (e) => { const r = e.reason || {}; send(r.message || String(r), r.stack); });
+})();
+
+// =====================================================
 // SETTINGS (WhatsApp / Telegram er moto: talika -> bhitore)
 // =====================================================
 let settingsSection = null;
@@ -2011,9 +2151,21 @@ async function setPrivacy(box) {
         (v) => save({ avatar_visibility: v }, () => {})));
 
     const sec = el('div', 'set-list');
+    const tfRow = settingsRow('shield', 'Two-step verification', 'Checking...', open2FA);
+    sec.appendChild(tfRow);
     sec.appendChild(settingsRow('key', 'Change password', '', openChangePassword));
     sec.appendChild(settingsRow('devices', 'Active sessions', 'Devices where you are logged in', openSessions));
     box.appendChild(sec);
+    let tf = {};
+    try { tf = await request('/api/2fa/status'); } catch (e) {}
+    const small = tfRow.querySelector('.set-text small');
+    if (small) small.textContent = tf.enabled ? 'On · code needed when you log in' : 'Off · add an extra lock to your account';
+    const alerts = el('div', 'privacy-form');
+    alerts.appendChild(setSwitch('Login alerts', 'Email and notify me when my account is used on a new device.', tf.login_alerts !== false, async (on, cb) => {
+        const r = await postJSON('/api/users/login-alerts', { on }).catch(() => ({}));
+        if (!r.ok) { cb.checked = !on; alert('Could not save.'); } else showToast('Login alerts', on ? 'On' : 'Off');
+    }));
+    box.insertBefore(alerts, sec.nextSibling);
 
     const blocked = el('div', 'blocked-box');
     blocked.appendChild(el('div', 'count-note', 'Blocked users'));
@@ -2492,6 +2644,39 @@ async function openAdminPanel() {
     let t = null;
     q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(drawUsers, 350); });
     drawUsers();
+
+    // ---- Error log ----
+    const ehead = el('div', 'admin-err-head');
+    ehead.appendChild(el('div', 'count-note', 'Error log (last 30 days)'));
+    const clear = el('button', 'btn-sm ghost', 'Clear');
+    clear.type = 'button';
+    ehead.appendChild(clear);
+    body.appendChild(ehead);
+    const elist = el('div', 'admin-users');
+    body.appendChild(elist);
+    const drawErrors = async () => {
+        let d = {};
+        try { d = await request('/api/admin/errors'); } catch (e) {}
+        elist.innerHTML = '';
+        const errs = d.errors || [];
+        if (!errs.length) { elist.appendChild(el('small', 'muted-note', 'No errors. Everything looks good.')); return; }
+        errs.slice(0, 40).forEach(e => {
+            const row = el('details', 'admin-err');
+            const sum = el('summary');
+            sum.appendChild(el('span', 'err-src ' + e.source, e.source));
+            sum.appendChild(el('span', 'err-msg', e.message));
+            sum.appendChild(el('small', '', new Date(e.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })));
+            row.appendChild(sum);
+            row.appendChild(el('pre', '', [e.path, e.user_name ? 'User: ' + e.user_name : '', e.user_agent, e.stack].filter(Boolean).join('\n')));
+            elist.appendChild(row);
+        });
+    };
+    clear.addEventListener('click', async () => {
+        if (!confirm('Delete all error logs?')) return;
+        await postJSON('/api/admin/errors/clear', {}).catch(() => {});
+        drawErrors();
+    });
+    drawErrors();
 }
 
 async function adminBan(id, name, ban) {
